@@ -1,0 +1,13 @@
+# config.py
+NUM_STEPS = 30
+NUM_PLAYERS = 4
+INITIAL_CASH = 100000
+
+# 4つの銘柄
+STOCKS = ['Stock_W', 'Stock_X', 'Stock_Y', 'Stock_Z']
+
+IS_RANKING_VISIBLE = True
+RANKING_INTERVAL = 2
+
+HUMAN_PLAYER_ID = 'Player_A'
+HUMAN_INPUT_MAX_STEPS = 3
