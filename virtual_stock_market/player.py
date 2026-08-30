@@ -40,41 +40,50 @@ def decide_investment_human(player_id, current_cash, visible_rank, curr_prices, 
                 
     return investments
 
+
 def decide_investment_ai(player_id, current_cash, visible_rank, total_players=NUM_PLAYERS, stocks=STOCKS):
-    """AI（簡易モデル）の判断ロジック"""
-    
-    # stocks の要素数に応じて動的に比率を割り当てる（ハードコーディングの不一致を防止）
+    """AI（簡易モデル）の判断ロジック - 必ず辞書を返す安全設計"""
     n_stocks = len(stocks)
+    
+    # 初期値として全銘柄0円の辞書を作成
     inv = {s: 0.0 for s in stocks}
 
+    # visible_rank が None の場合（非公開ターン）や条件に合致しない場合も安全に計算
     if visible_rank is None:
-        # ランキング非公開：全銘柄に均等分散（現金全体の20%ずつを各銘柄へ）
-        ratio = 0.8 / n_stocks if n_stocks > 0 else 0
-        inv = {s: current_cash * ratio for s in stocks}
+        # ランキング非公開：各銘柄へ分散投資
+        ratio = 0.6 / n_stocks if n_stocks > 0 else 0
+        for s in stocks:
+            inv[s] = current_cash * ratio
     else:
-        if visible_rank == total_players:  # 最下位：ハイリスク傾向（前半の銘柄に集中投資）
+        if visible_rank == total_players:  # 最下位：リスクを取る
             if n_stocks >= 2:
                 inv[stocks[0]] = current_cash * 0.4
                 inv[stocks[1]] = current_cash * 0.4
             elif n_stocks == 1:
                 inv[stocks[0]] = current_cash * 0.8
-        elif visible_rank == 1:            # 1位：守りの投資（後半の銘柄に控えめ投資）
+        elif visible_rank == 1:            # 1位：守りの投資
             if n_stocks >= 2:
                 inv[stocks[-1]] = current_cash * 0.2
                 inv[stocks[-2]] = current_cash * 0.2
             elif n_stocks == 1:
                 inv[stocks[0]] = current_cash * 0.3
-        else:                              # 中間順位：バランス投資
-            ratio = 0.6 / n_stocks if n_stocks > 0 else 0
-            inv = {s: current_cash * ratio for s in stocks}
+        else:                              # 中間順位
+            ratio = 0.5 / n_stocks if n_stocks > 0 else 0
+            for s in stocks:
+                inv[s] = current_cash * ratio
             
     return inv
 
+
 def update_assets(start_cash, investments, returns):
-    """資産の更新計算（キー参照の型エラーを防止する安全設計）"""
+    """資産の更新計算"""
+    # investments が万が一 None などの場合に空辞書へ安全変換
+    if not isinstance(investments, dict):
+        investments = {}
+
     cash_left = start_cash - sum(investments.values())
     
-    # returns[s] ではなく returns.get(s, 0.0) を使用することで KeyError / TypeError を回避
+    # returns から安全に取得
     payoffs = {s: investments[s] * (1 + returns.get(s, 0.0)) for s in investments}
     
     new_cash = cash_left + sum(payoffs.values())

@@ -237,4 +237,5 @@ else:
                 else:
                     st.session_state.step += 1
 
+                # 正常処理がすべて完了した後に画面を更新
                 st.rerun()
