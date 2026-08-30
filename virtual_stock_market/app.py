@@ -46,7 +46,7 @@ if 'step' not in st.session_state:
 # ==========================================
 if not st.session_state.is_logged_in:
     st.caption("🌙 YUTSUKI LAB EXPERIMENT")
-    st.header("投資シミュレーター")
+    st.header("投資シミュレータ")
     st.caption("実験を開始する前に、名前を入力してください。")
     st.divider()
 
@@ -79,7 +79,8 @@ if not st.session_state.is_logged_in:
 # ==========================================
 else:
     # 共通ヘッダー
-    st.header("🌙")
+    st.caption("🌙 YUTSUKI LAB EXPERIMENT")
+    st.header("投資シミュレータ")
 
     # ------------------------------------------
     # サイドバー表示
