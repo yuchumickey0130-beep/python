@@ -20,7 +20,7 @@ if 'step' not in st.session_state:
     st.session_state.game_over = False
     st.session_state.human_id = HUMAN_PLAYER_ID  # プレイヤー名をセッションで管理
 
-st.title("📊 仮想株式市場投資シミュレーション")
+st.header("📊 株式投資シミュレーション")
 
 # --- ゲーム終了時の画面表示 ---
 if st.session_state.game_over:

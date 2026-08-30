@@ -18,53 +18,56 @@ def generate_and_save_market_data(total_steps=NUM_STEPS, stocks=STOCKS, seed=42,
     half_steps = total_steps / 2
     
     # ------------------------------------------
-    # 外れ値（ショック）が発生するターンを事前に設定
-    # 3〜7ターンのランダムな間隔で発生ターンを割り出す
+    # 外れ値（ショック）が発生するターンを事前に設定 (3〜7ターン間隔)
     # ------------------------------------------
     outlier_steps = set()
-    current_step_count = np.random.randint(3, 8)  # 最初のショックが発生するターン（3〜7）
+    current_step_count = np.random.randint(3, 8)
     while current_step_count <= total_steps:
         outlier_steps.add(current_step_count)
-        current_step_count += np.random.randint(3, 8) # 次のショックまでの間隔（3〜7）
+        current_step_count += np.random.randint(3, 8)
+
+    # 銘柄の役割を配列のインデックスで割り当て
+    s_w = stocks[0]
+    s_x = stocks[1]
+    s_y = stocks[2] 
+    s_z = stocks[3] 
 
     # --- Step 1 〜 Step N ---
     for step in range(1, total_steps + 1):
         
-        # 1. Stock_W: 大器晩成・超爆発株
+        # 1. 0番目の銘柄: 大器晩成・超爆発株
         if step <= half_steps:
-            drift_w, vol_w = -0.04, 0.02
+            drift_w, vol_w = -0.01, 0.06
         else:
-            drift_w, vol_w = 0.12, 0.06
+            drift_w, vol_w = 0.03, 0.06
         ret_w = np.random.normal(drift_w, vol_w)
         
-        # 2. Stock_X: ハイボラティリティ・超乱高下株
-        ret_x = np.random.normal(0.01, 0.12)
+        # 2. 1番目の銘柄: ハイボラティリティ・超乱高下株
+        ret_x = np.random.normal(0.05, 0.3)
         
-        # 3. Stock_Y: 安定成長株
-        ret_y = np.random.normal(0.012, 0.01)
+        # 3. 2番目の銘柄: 安定成長株
+        ret_y = np.random.normal(0.01, 0.01)
         
-        # 4. Stock_Z: 山型トレンド株
+        # 4. 3番目の銘柄: 山型トレンド株
         if step <= half_steps:
-            drift_z, vol_z = 0.06, 0.04
+            drift_z, vol_z = 0.03, 0.06
         else:
-            drift_z, vol_z = -0.05, 0.04
+            drift_z, vol_z = -0.01, 0.06
         ret_z = np.random.normal(drift_z, vol_z)
         
         returns = {
-            'Stock_W': ret_w,
-            'Stock_X': ret_x,
-            'Stock_Y': ret_y,
-            'Stock_Z': ret_z
+            s_w: ret_w,
+            s_x: ret_x,
+            s_y: ret_y,
+            s_z: ret_z
         }
         
         # ------------------------------------------
         # 外れ値ターン処理（ランダムな銘柄に±25%〜50%のショックを付与）
         # ------------------------------------------
         if step in outlier_steps:
-            # 外れ値を発生させる銘柄を1〜2つランダム選出（安定株Stock_Yも低確率で巻き込まれる）
             target_stocks = np.random.choice(stocks, size=np.random.choice([1, 2]), replace=False)
             for target in target_stocks:
-                # プラスまたはマイナスの大きなギャップ（±25%〜±50%）
                 shock_direction = np.random.choice([-1, 1])
                 shock_magnitude = np.random.uniform(0.25, 0.50)
                 returns[target] += shock_direction * shock_magnitude

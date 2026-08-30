@@ -4,7 +4,7 @@ NUM_PLAYERS = 4
 INITIAL_CASH = 100000
 
 # 4つの銘柄
-STOCKS = ['Stock_W', 'Stock_X', 'Stock_Y', 'Stock_Z']
+STOCKS = ['小島電機', '井上パン', '笹田工務店', 'スーパー山田']
 
 IS_RANKING_VISIBLE = True
 RANKING_INTERVAL = 2
