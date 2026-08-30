@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import pandas as pd
-from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, HUMAN_PLAYER_ID
+from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, HUMAN_PLAYER_ID, RANKING_INTERVAL
 from market import generate_and_save_market_data, get_market_info_at_step
 from ranking import calculate_ranking_info
 from player import decide_investment_ai, update_assets
@@ -25,7 +25,7 @@ if 'step' not in st.session_state:
 # 画面 1: ユーザー名入力（ログイン画面）
 # ==========================================
 if not st.session_state.is_logged_in:
-    st.header("📊 投資シミュレータ")
+    st.header("投資シミュレーター")
     st.caption("実験を開始する前に、プレイヤー名を入力してください。")
     st.divider()
 
@@ -58,12 +58,11 @@ if not st.session_state.is_logged_in:
 # ==========================================
 else:
     # 共通ヘッダー
-    st.header("📊 投資シミュレータ")
+    st.header("投資シミュレーター")
 
     # ------------------------------------------
     # サイドバー表示
     # ------------------------------------------
-    # メニューの存在を明示するキャプション・見出し
     st.sidebar.caption("📋 メニュー / 実験ステータス")
     st.sidebar.markdown(f"### 📌 Step {st.session_state.step} / {NUM_STEPS}")
 
@@ -112,16 +111,24 @@ else:
         my_cash = st.session_state.player_cash[human_id]
         st.sidebar.metric(label="現在のあなたの現金", value=f"{my_cash:,.1f} 円")
 
-        my_rank = visible_ranks.get(human_id, None)
-        rank_disp = f"{my_rank} 位" if my_rank is not None else "非公開"
-        st.sidebar.metric(label="現在のあなたの順位", value=rank_disp)
+        # ------------------------------------------
+        # 順位および他プレイヤー情報の表示制御
+        # ------------------------------------------
+        if is_published:
+            # 【公開ターン】順位と他プレイヤー所持金を表示
+            my_rank = visible_ranks.get(human_id, None)
+            st.sidebar.metric(label="現在のあなたの順位", value=f"{my_rank} 位")
 
-        st.sidebar.divider()
-        st.sidebar.subheader("👪 他プレイヤーの所持金")
-        for p in st.session_state.players:
-            if p != human_id:
-                other_cash = st.session_state.player_cash[p]
-                st.sidebar.write(f"・**{p}**: {other_cash:,.1f} 円")
+            st.sidebar.divider()
+            st.sidebar.subheader("👪 他プレイヤーの所持金")
+            for p in st.session_state.players:
+                if p != human_id:
+                    other_cash = st.session_state.player_cash[p]
+                    st.sidebar.write(f"・**{p}**: {other_cash:,.1f} 円")
+        else:
+            # 【非公開ターン】順位・他者金額を伏せ、次回公開までのカウントダウンを表示
+            steps_until_next = RANKING_INTERVAL - ((step - 1) % RANKING_INTERVAL)
+            st.sidebar.info(f"⏳ 次の順位公開まで **あと {steps_until_next} ターン**")
 
         st.sidebar.divider()
 
