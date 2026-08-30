@@ -42,36 +42,40 @@ def decide_investment_human(player_id, current_cash, visible_rank, curr_prices, 
 
 def decide_investment_ai(player_id, current_cash, visible_rank, total_players=NUM_PLAYERS, stocks=STOCKS):
     """AI（簡易モデル）の判断ロジック"""
+    
+    # stocks の要素数に応じて動的に比率を割り当てる（ハードコーディングの不一致を防止）
+    n_stocks = len(stocks)
+    inv = {s: 0.0 for s in stocks}
+
     if visible_rank is None:
-        # ランキング非公開：全体に均等分散
-        inv = {s: current_cash * 0.2 for s in stocks}
+        # ランキング非公開：全銘柄に均等分散（現金全体の20%ずつを各銘柄へ）
+        ratio = 0.8 / n_stocks if n_stocks > 0 else 0
+        inv = {s: current_cash * ratio for s in stocks}
     else:
-        if visible_rank == total_players:  # 最下位：一発逆転を狙ってリスク株へ集中
-            inv = {
-                'Stock_W': current_cash * 0.3,
-                'Stock_X': current_cash * 0.4,
-                'Stock_Y': 0.0,
-                'Stock_Z': current_cash * 0.2
-            }
-        elif visible_rank == 1:            # 1位：守りの投資（安定株メイン）
-            inv = {
-                'Stock_W': 0.0,
-                'Stock_X': 0.0,
-                'Stock_Y': current_cash * 0.4,
-                'Stock_Z': current_cash * 0.1
-            }
-        else:                              # 中間順位
-            inv = {
-                'Stock_W': current_cash * 0.15,
-                'Stock_X': current_cash * 0.2,
-                'Stock_Y': current_cash * 0.25,
-                'Stock_Z': current_cash * 0.15
-            }
+        if visible_rank == total_players:  # 最下位：ハイリスク傾向（前半の銘柄に集中投資）
+            if n_stocks >= 2:
+                inv[stocks[0]] = current_cash * 0.4
+                inv[stocks[1]] = current_cash * 0.4
+            elif n_stocks == 1:
+                inv[stocks[0]] = current_cash * 0.8
+        elif visible_rank == 1:            # 1位：守りの投資（後半の銘柄に控えめ投資）
+            if n_stocks >= 2:
+                inv[stocks[-1]] = current_cash * 0.2
+                inv[stocks[-2]] = current_cash * 0.2
+            elif n_stocks == 1:
+                inv[stocks[0]] = current_cash * 0.3
+        else:                              # 中間順位：バランス投資
+            ratio = 0.6 / n_stocks if n_stocks > 0 else 0
+            inv = {s: current_cash * ratio for s in stocks}
             
     return inv
 
 def update_assets(start_cash, investments, returns):
+    """資産の更新計算（キー参照の型エラーを防止する安全設計）"""
     cash_left = start_cash - sum(investments.values())
-    payoffs = {s: investments[s] * (1 + returns[s]) for s in investments}
+    
+    # returns[s] ではなく returns.get(s, 0.0) を使用することで KeyError / TypeError を回避
+    payoffs = {s: investments[s] * (1 + returns.get(s, 0.0)) for s in investments}
+    
     new_cash = cash_left + sum(payoffs.values())
     return new_cash, payoffs

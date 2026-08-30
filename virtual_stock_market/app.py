@@ -150,7 +150,7 @@ else:
                     st.sidebar.write(f"・**{p}**: {other_cash:,.1f} 円")
         else:
             # 【非公開ターン】順位・他者金額を伏せ、次回公開までのカウントダウンを表示
-            steps_until_next = RANKING_INTERVAL - step % RANKING_INTERVAL
+            steps_until_next = RANKING_INTERVAL - ((step -1) % RANKING_INTERVAL)
             st.sidebar.info(f"⏳ 次の順位公開まで **あと {steps_until_next} ターン**")
 
         st.sidebar.divider()
