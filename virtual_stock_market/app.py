@@ -10,6 +10,26 @@ from analysis import create_log_entry, save_logs_to_csv
 # --- ページ基本設定 ---
 st.set_page_config(page_title="仮想株式市場投資実験", layout="wide")
 
+# ブランドバッジ表示用の共通関数
+def render_brand_badge():
+    st.sidebar.markdown(
+        """
+        <div style="
+            background-color: #f0f2f6; 
+            padding: 6px 10px; 
+            border-radius: 6px; 
+            text-align: center;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 12px;
+        ">
+            🌙 YUZUKI LAB EXPERIMENT
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
 # --- セッション状態の初期化 ---
 if 'step' not in st.session_state:
     st.session_state.step = 1
@@ -25,8 +45,9 @@ if 'step' not in st.session_state:
 # 画面 1: ユーザー名入力（ログイン画面）
 # ==========================================
 if not st.session_state.is_logged_in:
+    st.caption("🈷️ YUZUKI EXPERIMENT SYSTEM")
     st.header("投資シミュレーター")
-    st.caption("実験を開始する前に、プレイヤー名を入力してください。")
+    st.caption("実験を開始する前に、名前を入力してください。")
     st.divider()
 
     with st.form(key="login_form"):
@@ -63,6 +84,7 @@ else:
     # ------------------------------------------
     # サイドバー表示
     # ------------------------------------------
+    render_brand_badge()  # ブランドバッジ呼び出し
     st.sidebar.caption("📋 メニュー / 実験ステータス")
     st.sidebar.markdown(f"### 📌 Step {st.session_state.step} / {NUM_STEPS}")
 
@@ -127,7 +149,7 @@ else:
                     st.sidebar.write(f"・**{p}**: {other_cash:,.1f} 円")
         else:
             # 【非公開ターン】順位・他者金額を伏せ、次回公開までのカウントダウンを表示
-            steps_until_next = RANKING_INTERVAL - ((step - 1) % RANKING_INTERVAL)
+            steps_until_next = step % RANKING_INTERVAL
             st.sidebar.info(f"⏳ 次の順位公開まで **あと {steps_until_next} ターン**")
 
         st.sidebar.divider()
