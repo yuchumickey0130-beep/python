@@ -1,7 +1,5 @@
 # ranking.py
-from config import IS_RANKING_VISIBLE, RANKING_INTERVAL
-
-def calculate_ranking_info(step, player_cash, is_ranking_visible=IS_RANKING_VISIBLE, ranking_interval=RANKING_INTERVAL):
+def calculate_ranking_info(step, player_cash, is_ranking_visible, ranking_interval):
     sorted_players = sorted(player_cash.items(), key=lambda x: x[1], reverse=True)
     actual_ranks = {p: i + 1 for i, (p, a) in enumerate(sorted_players)}
     top_asset = sorted_players[0][1]

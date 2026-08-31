@@ -1,5 +1,5 @@
 # main.py
-from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, HUMAN_PLAYER_ID, HUMAN_INPUT_MAX_STEPS
+from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, HUMAN_PLAYER_ID, HUMAN_INPUT_MAX_STEPS, IS_RANKING_VISIBLE, RANKING_INTERVAL
 from market import generate_and_save_market_data, get_market_info_at_step
 from ranking import calculate_ranking_info
 from player import decide_investment_human, decide_investment_ai, update_assets
@@ -24,7 +24,7 @@ def main():
         
         # 現在の株価、前ターンの株価、リターンを取得
         curr_prices, prev_prices, returns = get_market_info_at_step(df_market, step)
-        visible_ranks, visible_gaps, is_published = calculate_ranking_info(step, player_cash)
+        visible_ranks, visible_gaps, is_published = calculate_ranking_info(step, player_cash, IS_RANKING_VISIBLE, RANKING_INTERVAL)
         
         step_investments = {}
         for p in players:

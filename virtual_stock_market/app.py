@@ -7,6 +7,8 @@ from ranking import calculate_ranking_info
 from player import decide_investment_ai, update_assets
 from analysis import create_log_entry, save_logs_to_csv
 
+st.write("DEBUG: RANKING_INTERVAL =", RANKING_INTERVAL)
+
 # --- ページ基本設定 ---
 st.set_page_config(page_title="仮想株式市場投資実験", layout="wide")
 
@@ -128,7 +130,7 @@ else:
     else:
         step = st.session_state.step
         curr_prices, prev_prices, returns = get_market_info_at_step(st.session_state.df_market, step)
-        visible_ranks, visible_gaps, is_published = calculate_ranking_info(step, st.session_state.player_cash)
+        visible_ranks, visible_gaps, is_published = calculate_ranking_info(step, st.session_state.player_cash, True, RANKING_INTERVAL)
 
         # サイドバーへのメトリクス出力
         my_cash = st.session_state.player_cash[human_id]
