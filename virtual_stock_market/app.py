@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import time
-from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, HUMAN_PLAYER_ID, RANKING_INTERVAL
+from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, HUMAN_PLAYER_ID, RANKING_INTERVAL, HOST_PASSWORD
 from market import generate_and_save_market_data, get_market_info_at_step
 from ranking import calculate_ranking_info
 from player import decide_investment_ai, update_assets
@@ -44,12 +44,18 @@ if not st.session_state.is_logged_in:
     with st.form(key="login_form"):
         input_name = st.text_input("👤 プレイヤー名（ID）を入力してください", value="Admin_Host", max_chars=20)
         is_host_check = st.checkbox("管理者（ホスト）としてログインする（※ゲームには参加しません）")
+        
+        # ホスト認証用パスワード入力欄
+        input_password = st.text_input("🔑 ホスト用パスワード（管理者のみ入力）", type="password")
+        
         submit_login = st.form_submit_button("ロビーに入る ➔")
 
     if submit_login:
         clean_name = input_name.strip()
         if clean_name == "":
             st.error("⚠️ プレイヤー名を入力してください。")
+        elif is_host_check and input_password != HOST_PASSWORD:
+            st.error("❌ パスワードが正しくありません。管理者以外はチェックを外してログインしてください。")
         else:
             st.session_state.my_id = clean_name
             st.session_state.is_host = is_host_check
@@ -60,7 +66,7 @@ if not st.session_state.is_logged_in:
                 db.register_player(clean_name, float(INITIAL_CASH), is_ai=False)
             
             st.rerun()
-
+            
 # ==========================================
 # 画面 2: シミュレーション本編（ログイン後）
 # ==========================================

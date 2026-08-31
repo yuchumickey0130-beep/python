@@ -11,3 +11,6 @@ RANKING_INTERVAL = 3
 
 HUMAN_PLAYER_ID = 'Player_A'
 HUMAN_INPUT_MAX_STEPS = 3
+
+# 管理者（ホスト）ログイン用パスワード
+HOST_PASSWORD = "mastermoon0424" 
