@@ -37,7 +37,7 @@ if 'is_logged_in' not in st.session_state:
 # ==========================================
 if not st.session_state.is_logged_in:
     st.caption("🌙 YUTSUKI LAB EXPERIMENT")
-    st.header("投資シミュレータ (マルチプレイヤー)")
+    st.header("投資シミュレータ")
     st.caption("実験を開始する前に、名前を入力して参加してください。")
     st.divider()
 
@@ -66,7 +66,7 @@ if not st.session_state.is_logged_in:
                 db.register_player(clean_name, float(INITIAL_CASH), is_ai=False)
             
             st.rerun()
-            
+
 # ==========================================
 # 画面 2: シミュレーション本編（ログイン後）
 # ==========================================

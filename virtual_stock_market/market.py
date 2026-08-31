@@ -18,13 +18,13 @@ def generate_and_save_market_data(total_steps=NUM_STEPS, stocks=STOCKS, seed=42,
     half_steps = total_steps / 2
     
     # ------------------------------------------
-    # 外れ値（ショック）が発生するターンを事前に設定 (3〜7ターン間隔)
+    # 外れ値（ショック）が発生するターンを事前に設定 (2〜4ターン間隔)
     # ------------------------------------------
     outlier_steps = set()
-    current_step_count = np.random.randint(3, 8)
+    current_step_count = np.random.randint(2, 5)
     while current_step_count <= total_steps:
         outlier_steps.add(current_step_count)
-        current_step_count += np.random.randint(3, 8)
+        current_step_count += np.random.randint(2, 5)
 
     # 銘柄の役割を配列のインデックスで割り当て
     s_w = stocks[0]
