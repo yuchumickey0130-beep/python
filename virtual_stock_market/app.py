@@ -7,7 +7,8 @@ from ranking import calculate_ranking_info
 from player import decide_investment_ai, update_assets
 from analysis import create_log_entry, save_logs_to_csv
 
-st.write("DEBUG: RANKING_INTERVAL =", RANKING_INTERVAL)
+st.write("DEBUG interval:", RANKING_INTERVAL)
+st.write("DEBUG config:", __import__("config").__file__)
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="仮想株式市場投資実験", layout="wide")
