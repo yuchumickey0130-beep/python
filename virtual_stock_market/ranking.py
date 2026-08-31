@@ -1,4 +1,9 @@
 # ranking.py
+import importlib
+import config
+
+importlib.reload(config)  # config モジュールを強制再読み込み
+
 def calculate_ranking_info(step, player_cash, is_ranking_visible, ranking_interval):
     sorted_players = sorted(player_cash.items(), key=lambda x: x[1], reverse=True)
     actual_ranks = {p: i + 1 for i, (p, a) in enumerate(sorted_players)}
