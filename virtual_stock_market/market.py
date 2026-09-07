@@ -15,62 +15,24 @@ def generate_and_save_market_data(total_steps=NUM_STEPS, stocks=STOCKS, seed=42,
         step_0_row[f'{s}_Price'] = current_prices[s]
     market_list.append(step_0_row)
     
-    half_steps = total_steps / 2
-    
-    # ------------------------------------------
-    # 外れ値（ショック）が発生するターンを事前に設定 (2〜4ターン間隔)
-    # ------------------------------------------
-    outlier_steps = set()
-    current_step_count = np.random.randint(2, 5)
-    while current_step_count <= total_steps:
-        outlier_steps.add(current_step_count)
-        current_step_count += np.random.randint(2, 5)
+    if len(stocks) != 4:
+        raise ValueError("市場は4銘柄（高リスク2・安定2）を前提としています。")
 
-    # 銘柄の役割を配列のインデックスで割り当て
-    s_w = stocks[0]
-    s_x = stocks[1]
-    s_y = stocks[2] 
-    s_z = stocks[3] 
+    # 銘柄名による有利不利を作らないため、同じ種類の2銘柄は同一分布から生成する。
+    high_risk_stocks = stocks[:2]
+    stable_stocks = stocks[2:]
 
     # --- Step 1 〜 Step N ---
     for step in range(1, total_steps + 1):
         
-        # 1. 0番目の銘柄: 大器晩成・超爆発株
-        if step <= half_steps:
-            drift_w, vol_w = -0.01, 0.06
-        else:
-            drift_w, vol_w = 0.03, 0.06
-        ret_w = np.random.normal(drift_w, vol_w)
-        
-        # 2. 1番目の銘柄: ハイボラティリティ・超乱高下株
-        ret_x = np.random.normal(0.05, 0.3)
-        
-        # 3. 2番目の銘柄: 安定成長株
-        ret_y = np.random.normal(0.01, 0.01)
-        
-        # 4. 3番目の銘柄: 山型トレンド株
-        if step <= half_steps:
-            drift_z, vol_z = 0.03, 0.06
-        else:
-            drift_z, vol_z = -0.01, 0.06
-        ret_z = np.random.normal(drift_z, vol_z)
-        
+        # 前半・後半で傾向が反転する予測可能な銘柄は置かず、毎ターン独立に生成する。
         returns = {
-            s_w: ret_w,
-            s_x: ret_x,
-            s_y: ret_y,
-            s_z: ret_z
+            **{s: np.random.normal(0.01, 0.15) for s in high_risk_stocks},
+            **{s: np.random.normal(0.005, 0.02) for s in stable_stocks},
         }
-        
-        # ------------------------------------------
-        # 外れ値ターン処理（ランダムな銘柄に±25%〜50%のショックを付与）
-        # ------------------------------------------
-        if step in outlier_steps:
-            target_stocks = np.random.choice(stocks, size=np.random.choice([1, 2]), replace=False)
-            for target in target_stocks:
-                shock_direction = np.random.choice([-1, 1])
-                shock_magnitude = np.random.uniform(0.25, 0.50)
-                returns[target] += shock_direction * shock_magnitude
+
+        # 価格が負にならないよう、1ターンの損失率を -95% で打ち切る。
+        returns = {s: max(ret, -0.95) for s, ret in returns.items()}
         
         row = {'Step': step}
         for s in stocks:
