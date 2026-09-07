@@ -25,6 +25,7 @@ def main():
         # 現在の株価、前ターンの株価、リターンを取得
         curr_prices, prev_prices, returns = get_market_info_at_step(df_market, step)
         visible_ranks, visible_gaps, is_published = calculate_ranking_info(step, player_cash, IS_RANKING_VISIBLE, RANKING_INTERVAL)
+        turns_until_ranking = 0 if is_published else RANKING_INTERVAL - (step % RANKING_INTERVAL)
         
         step_investments = {}
         for p in players:
@@ -41,7 +42,10 @@ def main():
             new_cash, _ = update_assets(start_cash, inv, returns)
             player_cash[p] = new_cash
             
-            log = create_log_entry(step, p, start_cash, inv, returns, new_cash, visible_ranks[p], visible_gaps[p])
+            log = create_log_entry(
+                step, p, start_cash, inv, returns, new_cash,
+                visible_ranks[p], visible_gaps[p], turns_until_ranking
+            )
             log['Is_Ranking_Published'] = is_published
             history_logs.append(log)
 

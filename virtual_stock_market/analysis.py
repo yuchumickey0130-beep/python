@@ -1,7 +1,8 @@
 # analysis.py
 import pandas as pd
 
-def create_log_entry(step, player_id, start_cash, investments, returns, end_cash, rank, top_asset_gap):
+def create_log_entry(step, player_id, start_cash, investments, returns, end_cash, rank, top_asset_gap,
+                     turns_until_ranking=None):
     total_invested = sum(investments.values())
     risk_ratio = total_invested / start_cash if start_cash > 0 else 0.0
     
@@ -14,6 +15,8 @@ def create_log_entry(step, player_id, start_cash, investments, returns, end_cash
         'Rank': rank if rank is not None else '-',
         'Asset_Gap_From_Top': round(top_asset_gap, 1) if top_asset_gap is not None else '-'
     }
+    if turns_until_ranking is not None:
+        log_entry['Turns_Until_Ranking'] = turns_until_ranking
     for s in investments:
         log_entry[f'Inv_{s}'] = round(investments[s], 1)
         log_entry[f'Return_{s}'] = round(returns[s], 3)

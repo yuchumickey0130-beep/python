@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import time
-from config import NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, HUMAN_PLAYER_ID, RANKING_INTERVAL, HOST_PASSWORD
+from config import ADMIN_MODE, NUM_STEPS, NUM_PLAYERS, INITIAL_CASH, STOCKS, RANKING_INTERVAL, HOST_PASSWORD
 from market import generate_and_save_market_data, get_market_info_at_step
 from ranking import calculate_ranking_info
 from player import decide_investment_ai, update_assets
@@ -24,6 +24,36 @@ def render_brand_badge():
         unsafe_allow_html=True
     )
 
+def advance_current_step(players, step, returns, visible_ranks, visible_gaps,
+                         is_published, submitted_inputs=None):
+    """全プレイヤーの資産を更新し、1ターン進める。"""
+    submitted_inputs = submitted_inputs or {}
+    new_cashes = {}
+    turns_until_ranking = 0 if is_published else RANKING_INTERVAL - (step % RANKING_INTERVAL)
+
+    for player in players:
+        player_id = player['player_id']
+        if player['is_ai']:
+            investments = decide_investment_ai(
+                player_id, player['cash'], visible_ranks.get(player_id), NUM_PLAYERS
+            )
+        else:
+            investments = submitted_inputs.get(player_id, player['current_input'])
+
+        new_cash, _ = update_assets(player['cash'], investments, returns)
+        new_cashes[player_id] = new_cash
+
+        log = create_log_entry(
+            step, player_id, player['cash'], investments, returns, new_cash,
+            visible_ranks.get(player_id), visible_gaps.get(player_id),
+            turns_until_ranking
+        )
+        log['Is_Ranking_Published'] = is_published
+        st.session_state.history_logs.append(log)
+
+    is_over = step >= NUM_STEPS
+    db.advance_to_next_step(step + 1 if not is_over else step, new_cashes, game_over=is_over)
+
 # --- セッション状態の初期化 ---
 if 'is_logged_in' not in st.session_state:
     st.session_state.is_logged_in = False
@@ -42,11 +72,13 @@ if not st.session_state.is_logged_in:
     st.divider()
 
     with st.form(key="login_form"):
-        input_name = st.text_input("👤 プレイヤー名（ID）を入力してください", value="Admin_Host", max_chars=20)
-        is_host_check = st.checkbox("管理者（ホスト）としてログインする（※ゲームには参加しません）")
-        
-        # ホスト認証用パスワード入力欄
-        input_password = st.text_input("🔑 ホスト用パスワード（管理者のみ入力）", type="password")
+        input_name = st.text_input("👤 プレイヤー名（ID）を入力してください", max_chars=20)
+        if ADMIN_MODE:
+            is_host_check = st.checkbox("管理者（ホスト）としてログインする（※ゲームには参加しません）")
+            input_password = st.text_input("🔑 ホスト用パスワード（管理者のみ入力）", type="password")
+        else:
+            is_host_check = False
+            input_password = ""
         
         submit_login = st.form_submit_button("ロビーに入る ➔")
 
@@ -64,6 +96,21 @@ if not st.session_state.is_logged_in:
             # ホストはプレイヤーリスト（対戦相手）には登録しない
             if not is_host_check:
                 db.register_player(clean_name, float(INITIAL_CASH), is_ai=False)
+
+            # 管理者モードOFFでは、残り枠をAIで埋めて直ちに開始する。
+            if not ADMIN_MODE:
+                registered_players = db.get_all_players()
+                used_names = {p['player_id'] for p in registered_players}
+                ai_index = 1
+                while len(registered_players) < NUM_PLAYERS:
+                    ai_name = f"AI_{ai_index}"
+                    ai_index += 1
+                    if ai_name in used_names:
+                        continue
+                    db.register_player(ai_name, float(INITIAL_CASH), is_ai=True)
+                    used_names.add(ai_name)
+                    registered_players = db.get_all_players()
+                db.set_room_started(True)
             
             st.rerun()
 
@@ -85,17 +132,18 @@ else:
     st.sidebar.write(f"👤 **ログイン:** {my_id} {'(管理者)' if is_host else ''}")
 
     # ------------------------------------------
-    # 強制終了機能（管理者・一般共通でサイドバーに復元）
+    # 強制終了機能（管理者モード時のみ表示）
     # ------------------------------------------
-    st.sidebar.divider()
-    with st.sidebar.expander("🛠️ 詳細・管理操作"):
-        st.caption("テスト用機能です。途中で切り上げて最終結果画面を表示します。")
-        confirm_abort = st.checkbox("強制終了を有効化", key="confirm_abort")
-        if st.button("🚨 ここで強制終了する", disabled=not confirm_abort):
-            if st.session_state.history_logs:
-                save_logs_to_csv(st.session_state.history_logs)
-            db.advance_to_next_step(room_state['step'], {p['player_id']: p['cash'] for p in players_data}, game_over=True)
-            st.rerun()
+    if ADMIN_MODE:
+        st.sidebar.divider()
+        with st.sidebar.expander("🛠️ 詳細・管理操作"):
+            st.caption("テスト用機能です。途中で切り上げて最終結果画面を表示します。")
+            confirm_abort = st.checkbox("強制終了を有効化", key="confirm_abort")
+            if st.button("🚨 ここで強制終了する", disabled=not confirm_abort):
+                if st.session_state.history_logs:
+                    save_logs_to_csv(st.session_state.history_logs)
+                db.advance_to_next_step(room_state['step'], {p['player_id']: p['cash'] for p in players_data}, game_over=True)
+                st.rerun()
 
     # --- A. 実験開始前の待機ロビー ---
     if not room_state['is_started']:
@@ -156,7 +204,7 @@ else:
         else:
             st.info("データが記録される前に終了されました。")
 
-        if is_host and st.button("もう一度最初からプレイする"):
+        if (is_host or not ADMIN_MODE) and st.button("もう一度最初からプレイする"):
             db.reset_room()
             st.session_state.clear()
             st.rerun()
@@ -216,26 +264,9 @@ else:
 
             st.divider()
             if st.button("➔ 全員の入力結果を反映して次のターンへ進む", disabled=not all_submitted, type="primary"):
-                new_cashes = {}
-                step_investments = {}
-
-                for p in players_data:
-                    p_id = p['player_id']
-                    if p['is_ai']:
-                        inv = decide_investment_ai(p_id, p['cash'], visible_ranks.get(p_id), NUM_PLAYERS)
-                    else:
-                        inv = p['current_input']
-                    
-                    step_investments[p_id] = inv
-                    new_cash, _ = update_assets(p['cash'], inv, returns)
-                    new_cashes[p_id] = new_cash
-
-                    log = create_log_entry(step, p_id, p['cash'], inv, returns, new_cash, visible_ranks.get(p_id), visible_gaps.get(p_id))
-                    log['Is_Ranking_Published'] = is_published
-                    st.session_state.history_logs.append(log)
-
-                is_over = step >= NUM_STEPS
-                db.advance_to_next_step(step + 1 if not is_over else step, new_cashes, game_over=is_over)
+                advance_current_step(
+                    players_data, step, returns, visible_ranks, visible_gaps, is_published
+                )
                 st.rerun()
 
             # ホスト画面を2秒ごとにリロードして入力状況を最新化
@@ -281,5 +312,11 @@ else:
                     if sum(invest_inputs.values()) > my_cash:
                         st.warning("⚠️ 投資額の合計が所持現金を超えています！")
                     else:
-                        db.submit_player_input(my_id, invest_inputs)
+                        if ADMIN_MODE:
+                            db.submit_player_input(my_id, invest_inputs)
+                        else:
+                            advance_current_step(
+                                players_data, step, returns, visible_ranks, visible_gaps,
+                                is_published, submitted_inputs={my_id: invest_inputs}
+                            )
                         st.rerun()
