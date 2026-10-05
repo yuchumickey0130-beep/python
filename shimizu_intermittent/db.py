@@ -218,3 +218,26 @@ def reset_room():
 
     conn.commit()
     conn.close()
+
+def submit_choice(player_id, choice, response_time):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute(
+        """
+        UPDATE players
+        SET
+            current_choice = ?,
+            response_time = ?,
+            has_submitted = 1
+        WHERE player_id = ?
+        """,
+        (
+            choice,
+            response_time,
+            player_id
+        )
+    )
+
+    conn.commit()
+    conn.close()
