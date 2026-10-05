@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import pandas as pd
 import time
+import db
 from collections import Counter
 from matplotlib.lines import Line2D
 
@@ -18,6 +19,8 @@ RETURN_MULTIPLIER = 1.6
 
 MIN_HIGH_INTERVAL = 3
 MAX_HIGH_INTERVAL = 7
+
+db.init_db()
 
 st.set_page_config(
     page_title="反復投資実験",
@@ -195,6 +198,120 @@ if "wait_reason" not in st.session_state:
 
 render_brand_badge()
 
+if "my_id" not in st.session_state:
+    st.session_state.my_id = None
+
+if "player_number" not in st.session_state:
+    st.session_state.player_number = None
+
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
+if st.session_state.my_id is None:
+
+    st.subheader("参加者ログイン")
+
+    player_id = st.text_input(
+        "参加者IDを入力してください",
+        placeholder="例：P01"
+    )
+
+    if st.button("ログイン", type="primary"):
+
+        player_id = player_id.strip()
+
+        if player_id == "":
+            st.error("参加者IDを入力してください。")
+
+        elif player_id.lower() == "admin":
+            st.session_state.my_id = "admin"
+            st.session_state.is_admin = True
+            st.rerun()
+
+        else:
+            player_number = db.register_player(
+                player_id,
+                INITIAL_WEALTH
+            )
+
+            if player_number is None:
+                st.error(
+                    "参加人数が上限の8人に達しています。"
+                )
+
+            else:
+                st.session_state.my_id = player_id
+                st.session_state.player_number = player_number
+                st.session_state.is_admin = False
+                st.rerun()
+
+    st.stop()
+
+room = db.get_room_state()
+
+if not room["is_started"]:
+
+    players = db.get_all_players()
+
+    st.subheader("実験開始待機")
+
+    if st.session_state.is_admin:
+
+        st.write("管理者モード")
+        st.write(f"現在の参加者：{len(players)} / {NUM_PLAYERS}")
+
+        for player in players:
+            st.write(
+                f"Player {player['player_number']}："
+                f"{player['player_id']}"
+            )
+
+        st.divider()
+
+        if len(players) == NUM_PLAYERS:
+
+            if st.button(
+                "実験を開始",
+                type="primary"
+            ):
+                high_periods = generate_high_periods()
+
+                db.set_room_started(high_periods)
+
+                st.rerun()
+
+        else:
+            st.info(
+                f"あと {NUM_PLAYERS - len(players)} 人の参加を待っています。"
+            )
+
+        if st.button("実験室をリセット"):
+            db.reset_room()
+
+            st.session_state.my_id = None
+            st.session_state.player_number = None
+            st.session_state.is_admin = False
+
+            st.rerun()
+
+    else:
+
+        st.write(
+            f"あなたは Player "
+            f"{st.session_state.player_number} です。"
+        )
+
+        st.write(
+            "他の参加者と実験開始を待っています。"
+        )
+
+        st.write(
+            f"現在の参加者：{len(players)} / {NUM_PLAYERS}"
+        )
+
+    time.sleep(2)
+    st.rerun()
+
 if st.session_state.screen == "decision":
 
     if st.session_state.decision_start_time is None:
@@ -259,7 +376,9 @@ if st.session_state.screen == "decision":
 
     st.subheader(f"反復投資実験 （ターン{period}/{NUM_PERIODS}）")
 
-    st.write("あなたは Player 1 です。")
+    st.write(
+        f"あなたは Player {st.session_state.player_number} です。"
+    )
 
     st.markdown(
         "<div style='height: 20px;'></div>",
@@ -540,7 +659,9 @@ elif st.session_state.screen == "result":
 
     st.subheader(f"結果 （ターン{period}/{NUM_PERIODS}）")
 
-    st.write("あなたは Player 1 です。")
+    st.write(
+        f"あなたは Player {st.session_state.player_number} です。"
+    )
 
     st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
