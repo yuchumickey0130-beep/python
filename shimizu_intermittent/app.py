@@ -224,22 +224,10 @@ def watch_admin_state():
         st.rerun()
 
 if "period" not in st.session_state:
-    st.session_state.period = 1
-    st.session_state.wealths = [INITIAL_WEALTH] * NUM_PLAYERS
     st.session_state.screen = "decision"
-    st.session_state.choice = None
-    st.session_state.success = None
-    st.session_state.high_periods = generate_high_periods()
-    st.session_state.logs = []
 
 if "decision_start_time" not in st.session_state:
     st.session_state.decision_start_time = None
-
-if "game" not in st.session_state:
-    st.session_state.game = 1
-
-if "wait_reason" not in st.session_state:
-    st.session_state.wait_reason = None
 
 render_brand_badge()
 
@@ -385,6 +373,22 @@ if room["is_started"] and st.session_state.is_admin:
         st.subheader("実験終了")
         st.success("実験を終了しました。")
 
+        logs = db.get_period_logs()
+
+        if logs:
+            log_df = pd.DataFrame(logs)
+
+            csv = log_df.to_csv(
+                index=False
+            ).encode("utf-8-sig")
+
+            st.download_button(
+                label="実験ログCSVをダウンロード",
+                data=csv,
+                file_name="experiment_logs.csv",
+                mime="text/csv"
+            )
+
         if TEST_MODE:
             st.divider()
 
@@ -433,6 +437,18 @@ if room["is_started"] and st.session_state.is_admin:
                 log_df,
                 use_container_width=True
             )
+
+            csv = log_df.to_csv(
+                index=False
+            ).encode("utf-8-sig")
+
+            st.download_button(
+                label="CSVをダウンロード",
+                data=csv,
+                file_name="experiment_logs.csv",
+                mime="text/csv"
+            )
+
         else:
             st.write("ログはまだありません。")
 
@@ -616,6 +632,34 @@ if st.session_state.screen == "decision":
     rank_before = ranks_before[my_index]
     wealth_gap_before = wealth_gaps_before[my_index]
 
+    # 最後に公開された資産情報から、自分の公開情報を計算
+    if published_wealths is not None:
+
+        published_ranks = [
+            1 + sum(
+                other_wealth > player_wealth
+                for other_wealth in published_wealths
+            )
+            for player_wealth in published_wealths
+        ]
+
+        published_top_wealth = max(published_wealths)
+
+        published_gaps = [
+            published_top_wealth - player_wealth
+            for player_wealth in published_wealths
+        ]
+
+        last_published_wealth = published_wealths[my_index]
+        last_published_rank = published_ranks[my_index]
+        last_published_gap = published_gaps[my_index]
+
+    else:
+
+        last_published_wealth = None
+        last_published_rank = None
+        last_published_gap = None
+
     db.create_period_log(
         game=room["game"],
         player_id=st.session_state.my_id,
@@ -628,9 +672,9 @@ if st.session_state.screen == "decision":
         rank_before=rank_before,
         wealth_gap_before=wealth_gap_before,
         endowment=investment,
-        last_published_wealth=None,
-        last_published_rank=None,
-        last_published_gap=None,
+        last_published_wealth=last_published_wealth,
+        last_published_rank=last_published_rank,
+        last_published_gap=last_published_gap,
         group_wealths_before=wealths
     )
 
@@ -791,6 +835,13 @@ elif st.session_state.screen == "result":
 
     period = room["period"]
 
+    high_periods = room["high_periods"]
+    published_period = room["published_period"]
+    published_wealths = room["published_wealths"]
+
+    is_high = period in high_periods
+    my_index = player["player_number"] - 1
+
     player_number = player["player_number"]
     wealth_after = player["wealth"]
     choice = player["current_choice"]
@@ -874,64 +925,38 @@ elif st.session_state.screen == "result":
         unsafe_allow_html=True
     )
 
+    # HIGHターンでは、確定した最新の資産情報を公開
+    if is_high:
+
+        st.divider()
+
+        if published_period == period and published_wealths is not None:
+
+            past_highs = [
+                high_period
+                for high_period in high_periods
+                if high_period <= period
+            ]
+
+            if len(past_highs) == 1:
+                st.markdown("**資産情報が公開されました。**")
+            else:
+                st.markdown("**資産情報が更新されました。**")
+
+            st.write(
+                f"表示中の資産情報：ターン {published_period} 終了時"
+            )
+
+            plot_wealth_distribution(
+                published_wealths,
+                my_index
+            )
+
     st.write("次の案内があるまでお待ちください。")
 
     wait_for_phase_change("result")
 
     st.stop()
-
-elif st.session_state.screen == "wait":
-
-    if st.session_state.wait_reason == "game_end":
-
-        st.subheader(
-            f"ゲーム {st.session_state.game} 終了"
-        )
-
-        st.write(
-            "次の案内があるまで、そのままお待ちください。"
-        )
-
-        st.divider()
-
-        st.write("管理者操作")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("次のゲームを開始"):
-
-                st.session_state.game += 1
-                st.session_state.period = 1
-
-                st.session_state.wealths = (
-                    [INITIAL_WEALTH] * NUM_PLAYERS
-                )
-
-                st.session_state.high_periods = (
-                    generate_high_periods()
-                )
-
-                st.session_state.last_published_wealth = None
-                st.session_state.last_published_rank = None
-                st.session_state.last_published_gap = None
-
-                st.session_state.choice = None
-                st.session_state.success = None
-                st.session_state.decision_start_time = None
-
-                st.session_state.wait_reason = None
-                st.session_state.screen = "decision"
-
-                st.rerun()
-
-        with col2:
-            if st.button("実験を終了"):
-
-                st.session_state.wait_reason = None
-                st.session_state.screen = "final_end"
-
-                st.rerun()
 
 elif st.session_state.screen == "final_end":
 
