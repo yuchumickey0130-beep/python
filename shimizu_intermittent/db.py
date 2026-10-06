@@ -370,14 +370,14 @@ def finalize_period(success_capacity, return_multiplier):
         WHERE id = 1
     """)
 
-    game = row[0]
-    period = row[1]
-
     row = c.fetchone()
 
-    if row is None or row[0] != "decision":
+    if row is None or row[2] != "decision":
         conn.close()
         return
+
+    game = row[0]
+    period = row[1]
 
     # Player番号順に、現在の状態と選択を取得
     c.execute("""
@@ -717,3 +717,21 @@ def update_period_log_choice(
 
     conn.commit()
     conn.close()
+
+def get_period_logs():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute(
+        """
+        SELECT *
+        FROM period_logs
+        ORDER BY game, period, player_number
+        """
+    )
+
+    rows = c.fetchall()
+    conn.close()
+
+    return [dict(row) for row in rows]

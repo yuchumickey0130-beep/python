@@ -382,6 +382,20 @@ if room["is_started"] and st.session_state.is_admin:
         st.subheader("実験終了")
         st.success("実験を終了しました。")
 
+        if TEST_MODE:
+            st.divider()
+
+            if st.button("実験室をリセット"):
+                db.reset_room()
+
+                st.session_state.my_id = None
+                st.session_state.player_number = None
+                st.session_state.is_admin = False
+                st.session_state.screen = "decision"
+                st.session_state.decision_start_time = None
+
+                st.rerun()
+
         st.stop()
 
     players = db.get_all_players()
@@ -403,6 +417,21 @@ if room["is_started"] and st.session_state.is_admin:
             st.session_state.decision_start_time = None
 
             st.rerun()
+
+        st.divider()
+        st.subheader("実験ログ")
+
+        logs = db.get_period_logs()
+
+        if logs:
+            log_df = pd.DataFrame(logs)
+
+            st.dataframe(
+                log_df,
+                use_container_width=True
+            )
+        else:
+            st.write("ログはまだありません。")
 
     st.divider()
 
