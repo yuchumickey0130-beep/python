@@ -184,6 +184,39 @@ def plot_wealth_distribution(wealths):
 
     st.pyplot(fig)
 
+@st.fragment(run_every=2)
+def wait_for_phase_change(current_phase):
+
+    room_now = db.get_room_state()
+
+    if room_now["phase"] != current_phase:
+        st.rerun()
+
+@st.fragment(run_every=2)
+def watch_admin_state():
+
+    room_now = db.get_room_state()
+    players_now = db.get_all_players()
+
+    submitted_count_now = sum(
+        player["has_submitted"]
+        for player in players_now
+    )
+
+    current_key = (
+        room_now["game"],
+        room_now["period"],
+        room_now["phase"],
+        submitted_count_now
+    )
+
+    if "admin_state_key" not in st.session_state:
+        st.session_state.admin_state_key = current_key
+
+    elif st.session_state.admin_state_key != current_key:
+        st.session_state.admin_state_key = current_key
+        st.rerun()
+
 if "period" not in st.session_state:
     st.session_state.period = 1
     st.session_state.wealths = [INITIAL_WEALTH] * NUM_PLAYERS
@@ -427,8 +460,9 @@ if room["is_started"] and st.session_state.is_admin:
                 "このゲームの全ターンが終了しました。"
             )
 
-# 管理者はここで処理終了
+# 管理者はここでDBの変化を監視
 if st.session_state.is_admin:
+    watch_admin_state()
     st.stop()
 
 if st.session_state.screen == "decision":
@@ -634,11 +668,11 @@ if st.session_state.screen == "decision":
 elif st.session_state.screen == "waiting_submission":
 
     room = db.get_room_state()
-    
+
     if room["phase"] == "result":
         st.session_state.screen = "result"
         st.rerun()
-    
+
     st.subheader(
         f"ターン {room['period']}/{NUM_PERIODS}"
     )
@@ -651,8 +685,9 @@ elif st.session_state.screen == "waiting_submission":
         "他の参加者の回答を待っています。"
     )
 
-    time.sleep(2)
-    st.rerun()
+    wait_for_phase_change("decision")
+
+    st.stop()
 
 elif st.session_state.screen == "result":
 
@@ -746,6 +781,8 @@ elif st.session_state.screen == "result":
     )
 
     st.write("次の案内があるまでお待ちください。")
+
+    wait_for_phase_change("result")
 
     st.stop()
 
