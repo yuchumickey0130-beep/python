@@ -2,6 +2,8 @@ import sqlite3
 import json
 import random
 
+from config import INTEREST_RATE
+
 DB_NAME = "experiment_room.db"
 
 def init_db():
@@ -18,6 +20,8 @@ def init_db():
             is_started INTEGER,
             experiment_over INTEGER,
             high_periods TEXT,
+            published_period INTEGER,
+            published_wealths TEXT,
             num_invested INTEGER,
             num_success INTEGER,
             num_failed INTEGER,
@@ -92,12 +96,14 @@ def init_db():
             is_started,
             experiment_over,
             high_periods,
+            published_period,
+            published_wealths,
             num_invested,
             num_success,
             num_failed,
             num_not_invested
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         1,
         1,
@@ -106,6 +112,8 @@ def init_db():
         0,
         0,
         "[]",
+        None,
+        None,
         None,
         None,
         None,
@@ -259,6 +267,8 @@ def get_room_state():
             is_started,
             experiment_over,
             high_periods,
+            published_period,
+            published_wealths,
             num_invested,
             num_success,
             num_failed,
@@ -277,10 +287,16 @@ def get_room_state():
         "is_started": bool(row[3]),
         "experiment_over": bool(row[4]),
         "high_periods": json.loads(row[5]),
-        "num_invested": row[6],
-        "num_success": row[7],
-        "num_failed": row[8],
-        "num_not_invested": row[9]
+        "published_period": row[6],
+        "published_wealths": (
+            json.loads(row[7])
+            if row[7] is not None
+            else None
+        ),
+        "num_invested": row[8],
+        "num_success": row[9],
+        "num_failed": row[10],
+        "num_not_invested": row[11]
     }
 
 
@@ -314,6 +330,9 @@ def reset_room():
     # 参加者を全員削除
     c.execute("DELETE FROM players")
 
+    # 実験ログを全て削除
+    c.execute("DELETE FROM period_logs")
+
     # 実験全体を初期状態へ戻す
     c.execute(
         """
@@ -325,6 +344,8 @@ def reset_room():
             is_started = 0,
             experiment_over = 0,
             high_periods = '[]',
+            published_period = NULL,
+            published_wealths = NULL,
             num_invested = NULL,
             num_success = NULL,
             num_failed = NULL,
@@ -365,7 +386,7 @@ def finalize_period(success_capacity, return_multiplier):
 
     # Decisionフェーズ以外では結果を確定しない
     c.execute("""
-        SELECT game, period, phase
+        SELECT game, period, phase, high_periods
         FROM room_state
         WHERE id = 1
     """)
@@ -378,6 +399,7 @@ def finalize_period(success_capacity, return_multiplier):
 
     game = row[0]
     period = row[1]
+    high_periods = json.loads(row[3])
 
     # Player番号順に、現在の状態と選択を取得
     c.execute("""
@@ -422,7 +444,7 @@ def finalize_period(success_capacity, return_multiplier):
         wealth = row[2]
         choice = row[3]
 
-        investment = wealth * 0.10
+        investment = wealth * INTEREST_RATE
 
         if choice == "Not Invest":
             new_wealth = wealth + investment
@@ -474,6 +496,22 @@ def finalize_period(success_capacity, return_multiplier):
         player[2]
         for player in updated_players
     ]
+
+    # HIGHターンなら、このターン終了時の資産情報を公開
+    if period in high_periods:
+        c.execute(
+            """
+            UPDATE room_state
+            SET
+                published_period = ?,
+                published_wealths = ?
+            WHERE id = 1
+            """,
+            (
+                period,
+                json.dumps(group_wealths_after)
+            )
+        )
 
     # 更新後の順位
     ranks_after = [
@@ -566,6 +604,40 @@ def finalize_period(success_capacity, return_multiplier):
     conn.commit()
     conn.close()
 
+def advance_to_next_period():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # 次のターンへ進める
+    c.execute(
+        """
+        UPDATE room_state
+        SET
+            period = period + 1,
+            phase = 'decision',
+            num_invested = NULL,
+            num_success = NULL,
+            num_failed = NULL,
+            num_not_invested = NULL
+        WHERE id = 1
+        """
+    )
+
+    # 各Playerの回答状態をリセット
+    c.execute(
+        """
+        UPDATE players
+        SET
+            current_choice = NULL,
+            response_time = NULL,
+            has_submitted = 0,
+            success = NULL
+        """
+    )
+
+    conn.commit()
+    conn.close()
+
 def start_next_game(initial_wealth, high_periods):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -579,6 +651,8 @@ def start_next_game(initial_wealth, high_periods):
             period = 1,
             phase = 'decision',
             high_periods = ?,
+            published_period = NULL,
+            published_wealths = NULL,
             num_invested = NULL,
             num_success = NULL,
             num_failed = NULL,
@@ -717,6 +791,35 @@ def update_period_log_choice(
 
     conn.commit()
     conn.close()
+
+def get_period_log(game, player_id, period):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute(
+        """
+        SELECT *
+        FROM period_logs
+        WHERE
+            game = ?
+            AND player_id = ?
+            AND period = ?
+        """,
+        (
+            game,
+            player_id,
+            period
+        )
+    )
+
+    row = c.fetchone()
+    conn.close()
+
+    if row is None:
+        return None
+
+    return dict(row)
 
 def get_period_logs():
     conn = sqlite3.connect(DB_NAME)

@@ -7,21 +7,18 @@ import db
 from collections import Counter
 from matplotlib.lines import Line2D
 
-plt.rcParams["font.family"] = "Yu Gothic"
-
-NUM_PERIODS = 3
-NUM_PLAYERS = 8
-SUCCESS_CAPACITY = 4
-
-INITIAL_WEALTH = 500
-INTEREST_RATE = 0.10
-RETURN_MULTIPLIER = 1.6
-
-MIN_HIGH_INTERVAL = 3
-MAX_HIGH_INTERVAL = 7
-
-TEST_MODE = True
-TEST_NUM_PLAYERS = 2
+from config import (
+    NUM_PERIODS,
+    NUM_PLAYERS,
+    SUCCESS_CAPACITY,
+    INITIAL_WEALTH,
+    INTEREST_RATE,
+    RETURN_MULTIPLIER,
+    MIN_HIGH_INTERVAL,
+    MAX_HIGH_INTERVAL,
+    TEST_MODE,
+    TEST_NUM_PLAYERS,
+)
 
 required_players = (
     TEST_NUM_PLAYERS
@@ -30,6 +27,8 @@ required_players = (
 )
 
 db.init_db()
+
+plt.rcParams["font.family"] = "Yu Gothic"
 
 st.set_page_config(
     page_title="反復投資実験",
@@ -105,9 +104,16 @@ def generate_high_periods():
 
     return high_periods
 
-def plot_wealth_distribution(wealths):
+def plot_wealth_distribution(wealths, my_index):
 
-    other_wealths = wealths[1:]
+    my_wealth = wealths[my_index]
+
+    other_wealths = [
+        wealth
+        for i, wealth in enumerate(wealths)
+        if i != my_index
+    ]
+
     wealth_counts = Counter(other_wealths)
 
     fig, ax = plt.subplots()
@@ -124,7 +130,7 @@ def plot_wealth_distribution(wealths):
 
     # あなた
     ax.bar(
-        wealths[0] + bar_width / 2,
+        my_wealth + bar_width / 2,
         1,
         width=bar_width,
         color="tab:orange"
@@ -224,9 +230,6 @@ if "period" not in st.session_state:
     st.session_state.choice = None
     st.session_state.success = None
     st.session_state.high_periods = generate_high_periods()
-    st.session_state.last_published_wealth = None
-    st.session_state.last_published_rank = None
-    st.session_state.last_published_gap = None
     st.session_state.logs = []
 
 if "decision_start_time" not in st.session_state:
@@ -533,6 +536,9 @@ if st.session_state.screen == "decision":
     wealth = player["wealth"]
     high_periods = room["high_periods"]
 
+    published_period = room["published_period"]
+    published_wealths = room["published_wealths"]
+
     if st.session_state.decision_start_time is None:
         st.session_state.decision_start_time = time.perf_counter()
 
@@ -651,15 +657,17 @@ if st.session_state.screen == "decision":
     turns_to_end = NUM_PERIODS - period
 
     # 資産情報の公開
-    if st.session_state.last_published_wealth is None:
+    if published_wealths is None:
 
         st.write("資産情報はまだ公開されていません。")
 
         if turns_to_end == 0:
-            st.write("このターンが最終ターンです。")
-    
+            st.write("このターンが最終ターンです.")
+
         elif time_to_high == 0:
-            st.write("このターンの終了後に資産情報が公開されます。")
+            st.write(
+                "このターンの終了後に資産情報が公開されます。"
+            )
 
         elif time_to_high is not None:
             st.write(
@@ -672,22 +680,18 @@ if st.session_state.screen == "decision":
             )
 
     else:
-        if visibility_condition == "HIGH":
-            if len(past_highs) == 1:
-                st.markdown("**資産情報が公開されました。**")
-            else:
-                st.markdown("**資産情報が更新されました。**")
 
-        else:
-            st.write(
-                f"表示中の資産情報：ターン {last_high}終了時"
-            )
-        
+        st.write(
+            f"表示中の資産情報：ターン {published_period} 終了時"
+        )
+
         if turns_to_end == 0:
             st.write("このターンが最終ターンです。")
 
         elif time_to_high == 0:
-            st.write("このターンの終了後に資産情報が更新されます。")
+            st.write(
+                "このターンの終了後に資産情報が更新されます。"
+            )
 
         elif time_to_high is not None:
             st.write(
@@ -698,11 +702,11 @@ if st.session_state.screen == "decision":
             st.write(
                 f"実験終了まで：あと {turns_to_end} ターン"
             )
-    
-        if st.session_state.last_published_wealth is not None:
-            plot_wealth_distribution(
-                st.session_state.last_published_wealth
-            )
+
+        plot_wealth_distribution(
+            published_wealths,
+            my_index
+        )
     
     st.divider()
 
@@ -792,17 +796,16 @@ elif st.session_state.screen == "result":
     choice = player["current_choice"]
     success = player["success"]
 
-    # finalize_period() の更新式から判断前資産を逆算
-    if choice == "Not Invest":
-        wealth_before = wealth_after / (1 + INTEREST_RATE)
+    period_log = db.get_period_log(
+        room["game"],
+        st.session_state.my_id,
+        period
+    )
 
-    elif success:
-        wealth_before = wealth_after / (
-            1 + INTEREST_RATE * RETURN_MULTIPLIER
-        )
+    wealth_before = period_log["wealth_before"]
+    investment = period_log["endowment"]
 
-    else:
-        wealth_before = wealth_after
+    acquired_assets = wealth_after - wealth_before
 
     investment = wealth_before * INTEREST_RATE
     acquired_assets = wealth_after - wealth_before
