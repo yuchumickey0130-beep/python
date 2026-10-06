@@ -20,6 +20,15 @@ RETURN_MULTIPLIER = 1.6
 MIN_HIGH_INTERVAL = 3
 MAX_HIGH_INTERVAL = 7
 
+TEST_MODE = True
+TEST_NUM_PLAYERS = 2
+
+required_players = (
+    TEST_NUM_PLAYERS
+    if TEST_MODE
+    else NUM_PLAYERS
+)
+
 db.init_db()
 
 st.set_page_config(
@@ -249,6 +258,23 @@ if st.session_state.my_id is None:
 
 room = db.get_room_state()
 
+# DBのフェーズに参加者画面を同期
+if not st.session_state.is_admin:
+
+    player = db.get_player(
+        st.session_state.my_id
+    )
+
+    if room["phase"] == "result":
+        st.session_state.screen = "result"
+
+    elif room["phase"] == "decision":
+
+        if player["has_submitted"]:
+            st.session_state.screen = "waiting_submission"
+        else:
+            st.session_state.screen = "decision"
+
 if not room["is_started"]:
 
     players = db.get_all_players()
@@ -258,7 +284,7 @@ if not room["is_started"]:
     if st.session_state.is_admin:
 
         st.write("管理者モード")
-        st.write(f"現在の参加者：{len(players)} / {NUM_PLAYERS}")
+        st.write(f"現在の参加者：{len(players)} / {required_players}")
 
         for player in players:
             st.write(
@@ -268,7 +294,7 @@ if not room["is_started"]:
 
         st.divider()
 
-        if len(players) == NUM_PLAYERS:
+        if len(players) == required_players:
 
             if st.button(
                 "実験を開始",
@@ -282,7 +308,7 @@ if not room["is_started"]:
 
         else:
             st.info(
-                f"あと {NUM_PLAYERS - len(players)} 人の参加を待っています。"
+                f"あと {required_players - len(players)} 人の参加を待っています。"
             )
 
         if st.button("実験室をリセット"):
@@ -306,19 +332,110 @@ if not room["is_started"]:
         )
 
         st.write(
-            f"現在の参加者：{len(players)} / {NUM_PLAYERS}"
+            f"現在の参加者：{len(players)} / {required_players}"
         )
 
     time.sleep(2)
     st.rerun()
+
+# 実験開始後の管理者画面
+if room["is_started"] and st.session_state.is_admin:
+
+    players = db.get_all_players()
+
+    st.subheader("管理者画面")
+
+    st.write(f"ゲーム：{room['game']}")
+    st.write(f"ターン：{room['period']}")
+    st.write(f"フェーズ：{room['phase']}")
+
+    st.divider()
+
+    st.write("提出状況")
+
+    for player in players:
+
+        if player["has_submitted"]:
+            status = "提出済み"
+        else:
+            status = "未提出"
+
+        st.write(
+            f"Player {player['player_number']}：{status}"
+        )
+
+    submitted_count = sum(
+        player["has_submitted"]
+        for player in players
+    )
+
+    st.write(
+        f"合計：{submitted_count}/{required_players}"
+    )
+
+    all_submitted = (
+        len(players) == required_players
+        and submitted_count == required_players
+    )
+
+    if room["phase"] == "decision":
+
+        if all_submitted:
+
+            st.success("全員の回答が提出されました。")
+
+            if st.button(
+                "結果を確定",
+                type="primary"
+            ):
+                db.finalize_period(
+                    SUCCESS_CAPACITY,
+                    RETURN_MULTIPLIER
+                )
+                st.rerun()
+
+
+    elif room["phase"] == "result":
+
+        st.success("結果を確定しました。")
+        st.write("参加者は結果画面を確認中です。")
+
+        if room["period"] < NUM_PERIODS:
+
+            if st.button(
+                "次のターンへ",
+                type="primary"
+            ):
+                db.advance_to_next_period()
+                st.rerun()
+
+        else:
+
+            st.success(
+                "このゲームの全ターンが終了しました。"
+            )
 
 if st.session_state.screen == "decision":
 
     if st.session_state.decision_start_time is None:
         st.session_state.decision_start_time = time.perf_counter()
 
-    period = st.session_state.period
-    wealth = st.session_state.wealths[0]
+    room = db.get_room_state()
+
+    player = db.get_player(
+        st.session_state.my_id
+    )
+
+    players = db.get_all_players()
+
+    period = room["period"]
+    wealth = player["wealth"]
+
+    wealths = [
+        player_data["wealth"]
+        for player_data in players
+    ]
+
     investment = wealth * INTEREST_RATE
 
     if period in st.session_state.high_periods:
@@ -358,17 +475,17 @@ if st.session_state.screen == "decision":
     ranks_before = [
         1 + sum(
             other_wealth > player_wealth
-            for other_wealth in st.session_state.wealths
+            for other_wealth in wealths
         )
-        for player_wealth in st.session_state.wealths
+        for player_wealth in wealths
     ]
 
     # 判断前の8人の資産Gap
-    top_wealth_before = max(st.session_state.wealths)
+    top_wealth_before = max(wealths)
 
     wealth_gaps_before = [
         top_wealth_before - player_wealth
-        for player_wealth in st.session_state.wealths
+        for player_wealth in wealths
     ]
 
     # Player 1自身のGap
@@ -484,194 +601,87 @@ if st.session_state.screen == "decision":
             - st.session_state.decision_start_time
         )
 
-        st.session_state.response_time = response_time
-
-        # Player 1（人間）の選択
-        choices = [player_choice]
-
-        # Player 2～8の仮の選択
-        for i in range(1, NUM_PLAYERS):
-            ai_choice = random.choice(["Invest", "Not Invest"])
-            choices.append(ai_choice)
-
-        # 投資したPlayerの番号を取得
-        investors = [
-            i for i, choice in enumerate(choices)
-            if choice == "Invest"
-        ]
-
-        # 成功者を決定
-        if len(investors) <= SUCCESS_CAPACITY:
-            successful_investors = investors
-        else:
-            successful_investors = random.sample(
-                investors,
-                SUCCESS_CAPACITY
-            )
-
-        new_wealths = []
-
-        for i in range(NUM_PLAYERS):
-
-            player_wealth = st.session_state.wealths[i]
-            player_investment = player_wealth * INTEREST_RATE
-            player_choice_i = choices[i]
-
-            if player_choice_i == "Not Invest":
-                player_wealth_after = player_wealth + player_investment
-
-            elif i in successful_investors:
-                player_wealth_after = (
-                    player_wealth
-                    + player_investment * RETURN_MULTIPLIER
-                )
-
-            else:
-                player_wealth_after = player_wealth
-
-            new_wealths.append(player_wealth_after)
-
-        ranks_after = [
-            1 + sum(
-                other_wealth > player_wealth
-                for other_wealth in new_wealths
-            )
-            for player_wealth in new_wealths
-        ]
-
-        top_wealth_after = max(new_wealths)
-
-        wealth_gaps_after = [
-            top_wealth_after - player_wealth
-            for player_wealth in new_wealths
-        ]
-
-        wealth_gap_after = wealth_gaps_after[0]
-
-        num_invested = choices.count("Invest")
-        num_success = len(successful_investors)
-        num_failed = num_invested - num_success
-        num_not_invested = choices.count("Not Invest")
-
-        # 後の結果画面で使えるように保存
-        st.session_state.choices = choices
-        st.session_state.successful_investors = successful_investors
-        st.session_state.new_wealths = new_wealths
-
-        st.session_state.choice = player_choice
-
-        player_success = (
-            0 in successful_investors
-            if player_choice == "Invest"
-            else None
+        db.submit_choice(
+            st.session_state.my_id,
+            player_choice,
+            response_time
         )
 
-        st.session_state.success = player_success
+        st.session_state.decision_start_time = None
+        st.session_state.screen = "waiting_submission"
+        st.rerun()
 
-        log = {
-            "Game": st.session_state.game,
-            "Session": 1,
-            "Player": 1,
-            "Period": period,
+elif st.session_state.screen == "waiting_submission":
 
-            "Visibility_Condition": visibility_condition,
-            "Time_Since_High": time_since_high,
-            "Time_To_High": time_to_high,
-
-            "Wealth_Before": wealth,
-            "Rank_Before": ranks_before[0],
-            "Wealth_Gap_Before": wealth_gap_before,
-            "Endowment": investment,
-
-            "Last_Published_Wealth": (
-                st.session_state.last_published_wealth[0]
-                if st.session_state.last_published_wealth is not None
-                else None
-            ),
-
-            "Last_Published_Rank": (
-                st.session_state.last_published_rank[0]
-                if st.session_state.last_published_rank is not None
-                else None
-            ),
-
-            "Last_Published_Gap": (
-                st.session_state.last_published_gap[0]
-                if st.session_state.last_published_gap is not None
-                else None
-            ),
-
-            "Choice": player_choice,
-            "Response_Time": response_time,
-
-            "Result": player_success,
-
-            "Wealth_After": new_wealths[0],
-            "Rank_After": ranks_after[0],
-            "Wealth_Gap_After": wealth_gap_after,
-
-            "Num_Invested": num_invested,
-            "Num_Success": num_success,
-            "Num_Failed": num_failed,
-            "Num_Not_Invested": num_not_invested,
-
-            "Group_Wealths_Before": st.session_state.wealths.copy(),
-            "Group_Wealths_After": new_wealths.copy()
-        }
-
-        st.session_state.logs.append(log)
-
-        # HIGHのとき、今回の結果を公開情報として保存
-        if visibility_condition == "HIGH":
-
-            st.session_state.last_published_wealth = (
-                new_wealths.copy()
-            )
-
-            st.session_state.last_published_rank = (
-                ranks_after.copy()
-            )
-
-            st.session_state.last_published_gap = (
-                wealth_gaps_after.copy()
-            )
+    room = db.get_room_state()
     
-
+    if room["phase"] == "result":
         st.session_state.screen = "result"
         st.rerun()
+    
+    st.subheader(
+        f"ターン {room['period']}/{NUM_PERIODS}"
+    )
+
+    st.write(
+        f"Player {st.session_state.player_number}：提出済み"
+    )
+
+    st.write(
+        "他の参加者の回答を待っています。"
+    )
+
+    time.sleep(2)
+    st.rerun()
 
 elif st.session_state.screen == "result":
 
-    period = st.session_state.period
-    wealth = st.session_state.wealths[0]
-    investment = wealth * INTEREST_RATE
+    room = db.get_room_state()
+    player = db.get_player(st.session_state.my_id)
 
-    wealth_after = st.session_state.new_wealths[0]
-    acquired_assets = wealth_after - wealth
+    period = room["period"]
 
-    choices = st.session_state.choices
-    successful_investors = st.session_state.successful_investors
+    player_number = player["player_number"]
+    wealth_after = player["wealth"]
+    choice = player["current_choice"]
+    success = player["success"]
 
-    num_invested = choices.count("Invest")
-    num_success = len(successful_investors)
-    num_failed = num_invested - num_success
-    num_not_invested = choices.count("Not Invest")
+    # finalize_period() の更新式から判断前資産を逆算
+    if choice == "Not Invest":
+        wealth_before = wealth_after / (1 + INTEREST_RATE)
 
-    st.subheader(f"結果 （ターン{period}/{NUM_PERIODS}）")
+    elif success:
+        wealth_before = wealth_after / (
+            1 + INTEREST_RATE * RETURN_MULTIPLIER
+        )
 
-    st.write(
-        f"あなたは Player {st.session_state.player_number} です。"
+    else:
+        wealth_before = wealth_after
+
+    investment = wealth_before * INTEREST_RATE
+    acquired_assets = wealth_after - wealth_before
+
+    st.subheader(
+        f"結果 （ターン{period}/{NUM_PERIODS}）"
     )
 
-    st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+    st.write(
+        f"あなたは Player {player_number} です。"
+    )
 
-    if st.session_state.choice == "Invest":
+    st.markdown(
+        "<div style='height: 20px;'></div>",
+        unsafe_allow_html=True
+    )
 
-        if st.session_state.success:
-             result_text = """
+    if choice == "Invest":
+
+        if success:
+            result_text = """
             <b>あなたは投資しました。</b><br>
             <b>あなたの投資は成功しました。</b>
             """
+
         else:
             result_text = """
             <b>あなたは投資しました。</b><br>
@@ -683,49 +693,41 @@ elif st.session_state.screen == "result":
         <b>あなたは投資しませんでした。</b>
         """
 
-    st.markdown(result_text, unsafe_allow_html=True)
+    st.markdown(
+        result_text,
+        unsafe_allow_html=True
+    )
 
     details_text = f"""
     あなたの投資額：{investment:,.0f} ポイント<br>
-    投資した人数：{num_invested} 人<br>
-    成功した人数：{num_success} 人<br>
-    失敗した人数：{num_failed} 人<br>
-    投資しなかった人数：{num_not_invested} 人
+    投資した人数：{room["num_invested"]} 人<br>
+    成功した人数：{room["num_success"]} 人<br>
+    失敗した人数：{room["num_failed"]} 人<br>
+    投資しなかった人数：{room["num_not_invested"]} 人
     """
 
-    st.markdown(details_text, unsafe_allow_html=True)
+    st.markdown(
+        details_text,
+        unsafe_allow_html=True
+    )
 
     st.divider()
 
     assets_text = f"""
     今期獲得した資産：{acquired_assets:,.0f} ポイント<br>
-    <span style="color: red;">現在の総資産：{wealth_after:,.0f} ポイント</span>
+    <span style="color: red;">
+    現在の総資産：{wealth_after:,.0f} ポイント
+    </span>
     """
 
-    st.markdown(assets_text, unsafe_allow_html=True)
+    st.markdown(
+        assets_text,
+        unsafe_allow_html=True
+    )
 
-    if st.session_state.visibility_condition == "HIGH":
-        plot_wealth_distribution(
-            st.session_state.new_wealths
-        )
-            
-    if st.button("次へ", type="primary"):
+    st.write("次の案内があるまでお待ちください。")
 
-        st.session_state.wealths = st.session_state.new_wealths
-
-        if period == NUM_PERIODS:
-            st.session_state.screen = "wait"
-            st.session_state.wait_reason = "game_end"
-
-        else:
-            st.session_state.period += 1
-            st.session_state.screen = "decision"
-
-        st.session_state.choice = None
-        st.session_state.success = None
-        st.session_state.decision_start_time = None
-
-        st.rerun()
+    st.stop()
 
 elif st.session_state.screen == "wait":
 
