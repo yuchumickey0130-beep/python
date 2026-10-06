@@ -280,7 +280,11 @@ def reset_room():
             phase = 'decision',
             is_started = 0,
             experiment_over = 0,
-            high_periods = '[]'
+            high_periods = '[]',
+            num_invested = NULL,
+            num_success = NULL,
+            num_failed = NULL,
+            num_not_invested = NULL
         WHERE id = 1
         """
     )
@@ -314,6 +318,19 @@ def submit_choice(player_id, choice, response_time):
 def finalize_period(success_capacity, return_multiplier):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+
+    # Decisionフェーズ以外では結果を確定しない
+    c.execute("""
+        SELECT phase
+        FROM room_state
+        WHERE id = 1
+    """)
+
+    row = c.fetchone()
+
+    if row is None or row[0] != "decision":
+        conn.close()
+        return
 
     # Player番号順に、現在の状態と選択を取得
     c.execute("""

@@ -349,6 +349,18 @@ if room["is_started"] and st.session_state.is_admin:
     st.write(f"ターン：{room['period']}")
     st.write(f"フェーズ：{room['phase']}")
 
+    if TEST_MODE:
+        if st.button("実験室をリセット"):
+            db.reset_room()
+
+            st.session_state.my_id = None
+            st.session_state.player_number = None
+            st.session_state.is_admin = False
+            st.session_state.screen = "decision"
+            st.session_state.decision_start_time = None
+
+            st.rerun()
+
     st.divider()
 
     st.write("提出状況")
@@ -415,7 +427,15 @@ if room["is_started"] and st.session_state.is_admin:
                 "このゲームの全ターンが終了しました。"
             )
 
+# 管理者はここで処理終了
+if st.session_state.is_admin:
+    st.stop()
+
 if st.session_state.screen == "decision":
+
+    period = room["period"]
+    wealth = player["wealth"]
+    high_periods = room["high_periods"]
 
     if st.session_state.decision_start_time is None:
         st.session_state.decision_start_time = time.perf_counter()
@@ -438,7 +458,7 @@ if st.session_state.screen == "decision":
 
     investment = wealth * INTEREST_RATE
 
-    if period in st.session_state.high_periods:
+    if period in high_periods:
         visibility_condition = "HIGH"
     else:
         visibility_condition = "LOW"
@@ -447,13 +467,13 @@ if st.session_state.screen == "decision":
 
     past_highs = [
         high_period
-        for high_period in st.session_state.high_periods
+        for high_period in high_periods
         if high_period <= period
     ]
 
     future_highs = [
         high_period
-        for high_period in st.session_state.high_periods
+        for high_period in high_periods
         if high_period >= period
     ]
 
