@@ -38,6 +38,50 @@ def init_db():
         )
     """)
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS period_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            game INTEGER NOT NULL,
+            player_id TEXT NOT NULL,
+            player_number INTEGER NOT NULL,
+            period INTEGER NOT NULL,
+
+            visibility_condition TEXT,
+            time_since_high INTEGER,
+            time_to_high INTEGER,
+
+            wealth_before REAL,
+            rank_before INTEGER,
+            wealth_gap_before REAL,
+            endowment REAL,
+
+            last_published_wealth REAL,
+            last_published_rank INTEGER,
+            last_published_gap REAL,
+
+            choice TEXT,
+            response_time REAL,
+            result TEXT,
+
+            wealth_after REAL,
+            rank_after INTEGER,
+            wealth_gap_after REAL,
+
+            num_invested INTEGER,
+            num_success INTEGER,
+            num_failed INTEGER,
+            num_not_invested INTEGER,
+
+            group_wealths_before TEXT,
+            group_wealths_after TEXT,
+
+            UNIQUE(game, player_id, period)
+        )
+        """
+    )
+
     # room_state は1行だけ使用
     c.execute("""
         INSERT OR IGNORE INTO room_state (
@@ -321,10 +365,13 @@ def finalize_period(success_capacity, return_multiplier):
 
     # Decisionフェーズ以外では結果を確定しない
     c.execute("""
-        SELECT phase
+        SELECT game, period, phase
         FROM room_state
         WHERE id = 1
     """)
+
+    game = row[0]
+    period = row[1]
 
     row = c.fetchone()
 
@@ -407,6 +454,95 @@ def finalize_period(success_capacity, return_multiplier):
             )
         )
 
+    # 更新後の全Playerを取得
+    c.execute(
+        """
+        SELECT
+            player_id,
+            player_number,
+            wealth,
+            current_choice,
+            success
+        FROM players
+        ORDER BY player_number
+        """
+    )
+
+    updated_players = c.fetchall()
+
+    group_wealths_after = [
+        player[2]
+        for player in updated_players
+    ]
+
+    # 更新後の順位
+    ranks_after = [
+        1 + sum(
+            other_wealth > player_wealth
+            for other_wealth in group_wealths_after
+        )
+        for player_wealth in group_wealths_after
+    ]
+
+    # 更新後のトップとの差
+    top_wealth_after = max(group_wealths_after)
+
+    wealth_gaps_after = [
+        top_wealth_after - player_wealth
+        for player_wealth in group_wealths_after
+    ]
+
+    # 各Playerのログを完成させる
+    for i, player in enumerate(updated_players):
+
+        player_id = player[0]
+        wealth_after = player[2]
+        choice = player[3]
+        success = player[4]
+
+        if choice == "Invest":
+            if success:
+                result = "Success"
+            else:
+                result = "Failure"
+        else:
+            result = "Not Invest"
+
+        c.execute(
+            """
+            UPDATE period_logs
+            SET
+                result = ?,
+                wealth_after = ?,
+                rank_after = ?,
+                wealth_gap_after = ?,
+                num_invested = ?,
+                num_success = ?,
+                num_failed = ?,
+                num_not_invested = ?,
+                group_wealths_after = ?
+            WHERE
+                game = ?
+                AND player_id = ?
+                AND period = ?
+            """,
+            (
+                result,
+                wealth_after,
+                ranks_after[i],
+                wealth_gaps_after[i],
+                num_invested,
+                num_success,
+                num_failed,
+                num_not_invested,
+                json.dumps(group_wealths_after),
+                game,
+                player_id,
+                period
+            )
+        )
+
+
     # ターン全体の結果を保存し、Resultフェーズへ
     c.execute(
         """
@@ -430,30 +566,154 @@ def finalize_period(success_capacity, return_multiplier):
     conn.commit()
     conn.close()
 
-def advance_to_next_period():
+def start_next_game(initial_wealth, high_periods):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # 共有ターンを1つ進め、Decisionフェーズへ戻す
-    c.execute("""
+    # 実験全体を次のゲームへ
+    c.execute(
+        """
         UPDATE room_state
-        SET period = period + 1,
+        SET
+            game = game + 1,
+            period = 1,
             phase = 'decision',
+            high_periods = ?,
             num_invested = NULL,
             num_success = NULL,
             num_failed = NULL,
             num_not_invested = NULL
         WHERE id = 1
-    """)
+        """,
+        (json.dumps(high_periods),)
+    )
 
-    # 全参加者を「次ターン未回答」の状態へ戻す
-    c.execute("""
+    # 全参加者を初期状態へ戻す
+    c.execute(
+        """
         UPDATE players
-        SET current_choice = '',
+        SET
+            wealth = ?,
+            current_choice = NULL,
             response_time = NULL,
             has_submitted = 0,
             success = NULL
-    """)
+        """,
+        (initial_wealth,)
+    )
+
+    conn.commit()
+    conn.close()
+
+def end_experiment():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute(
+        """
+        UPDATE room_state
+        SET
+            experiment_over = 1,
+            phase = 'finished'
+        WHERE id = 1
+        """
+    )
+
+    conn.commit()
+    conn.close()
+
+def create_period_log(
+    game,
+    player_id,
+    player_number,
+    period,
+    visibility_condition,
+    time_since_high,
+    time_to_high,
+    wealth_before,
+    rank_before,
+    wealth_gap_before,
+    endowment,
+    last_published_wealth,
+    last_published_rank,
+    last_published_gap,
+    group_wealths_before
+):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute(
+        """
+        INSERT OR IGNORE INTO period_logs (
+            game,
+            player_id,
+            player_number,
+            period,
+            visibility_condition,
+            time_since_high,
+            time_to_high,
+            wealth_before,
+            rank_before,
+            wealth_gap_before,
+            endowment,
+            last_published_wealth,
+            last_published_rank,
+            last_published_gap,
+            group_wealths_before
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            game,
+            player_id,
+            player_number,
+            period,
+            visibility_condition,
+            time_since_high,
+            time_to_high,
+            wealth_before,
+            rank_before,
+            wealth_gap_before,
+            endowment,
+            last_published_wealth,
+            last_published_rank,
+            last_published_gap,
+            json.dumps(group_wealths_before)
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+def update_period_log_choice(
+    game,
+    player_id,
+    period,
+    choice,
+    response_time
+):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute(
+        """
+        UPDATE period_logs
+        SET
+            choice = ?,
+            response_time = ?
+        WHERE
+            game = ?
+            AND player_id = ?
+            AND period = ?
+        """,
+        (
+            choice,
+            response_time,
+            game,
+            player_id,
+            period
+        )
+    )
 
     conn.commit()
     conn.close()

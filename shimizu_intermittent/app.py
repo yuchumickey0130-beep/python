@@ -298,7 +298,10 @@ if not st.session_state.is_admin:
         st.session_state.my_id
     )
 
-    if room["phase"] == "result":
+    if room["phase"] == "finished":
+        st.session_state.screen = "final_end"
+
+    elif room["phase"] == "result":
         st.session_state.screen = "result"
 
     elif room["phase"] == "decision":
@@ -373,6 +376,13 @@ if not room["is_started"]:
 
 # 実験開始後の管理者画面
 if room["is_started"] and st.session_state.is_admin:
+
+    if room["experiment_over"]:
+
+        st.subheader("実験終了")
+        st.success("実験を終了しました。")
+
+        st.stop()
 
     players = db.get_all_players()
 
@@ -457,8 +467,31 @@ if room["is_started"] and st.session_state.is_admin:
         else:
 
             st.success(
-                "このゲームの全ターンが終了しました。"
+                f"ゲーム {room['game']} の全ターンが終了しました。"
             )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button(
+                    "次のゲームを開始",
+                    type="primary"
+                ):
+                    new_high_periods = generate_high_periods()
+
+                    db.start_next_game(
+                        INITIAL_WEALTH,
+                        new_high_periods
+                    )
+
+                    st.rerun()
+
+            with col2:
+                if st.button("実験を終了"):
+
+                    db.end_experiment()
+
+                    st.rerun()
 
 # 管理者はここでDBの変化を監視
 if st.session_state.is_admin:
@@ -543,7 +576,28 @@ if st.session_state.screen == "decision":
     ]
 
     # Player 1自身のGap
-    wealth_gap_before = wealth_gaps_before[0]
+    my_index = player["player_number"] - 1
+
+    rank_before = ranks_before[my_index]
+    wealth_gap_before = wealth_gaps_before[my_index]
+
+    db.create_period_log(
+        game=room["game"],
+        player_id=st.session_state.my_id,
+        player_number=player["player_number"],
+        period=period,
+        visibility_condition=visibility_condition,
+        time_since_high=time_since_high,
+        time_to_high=time_to_high,
+        wealth_before=wealth,
+        rank_before=rank_before,
+        wealth_gap_before=wealth_gap_before,
+        endowment=investment,
+        last_published_wealth=None,
+        last_published_rank=None,
+        last_published_gap=None,
+        group_wealths_before=wealths
+    )
 
     st.subheader(f"反復投資実験 （ターン{period}/{NUM_PERIODS}）")
 
@@ -659,6 +713,14 @@ if st.session_state.screen == "decision":
             st.session_state.my_id,
             player_choice,
             response_time
+        )
+
+        db.update_period_log_choice(
+            game=room["game"],
+            player_id=st.session_state.my_id,
+            period=period,
+            choice=player_choice,
+            response_time=response_time
         )
 
         st.session_state.decision_start_time = None
@@ -846,17 +908,4 @@ elif st.session_state.screen == "final_end":
     st.write("これで実験は終了です。")
     st.write("ご参加ありがとうございました。")
 
-    log_df = pd.DataFrame(
-        st.session_state.logs
-    )
-
-    csv = log_df.to_csv(
-        index=False
-    ).encode("utf-8-sig")
-
-    st.download_button(
-        label="CSVをダウンロード",
-        data=csv,
-        file_name="experiment_log.csv",
-        mime="text/csv"
-    )
+    st.stop()
