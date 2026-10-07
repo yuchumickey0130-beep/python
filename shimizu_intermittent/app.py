@@ -233,6 +233,18 @@ def watch_admin_state():
         st.session_state.admin_state_key = current_key
         st.rerun()
 
+@st.fragment(run_every=2)
+def watch_room_reset():
+
+    if st.session_state.my_id is None:
+        return
+
+    if st.session_state.is_admin:
+        return
+
+    if db.get_player(st.session_state.my_id) is None:
+        st.rerun(scope="app")
+
 if "screen" not in st.session_state:
     st.session_state.screen = "decision"
 
@@ -292,6 +304,24 @@ if st.session_state.my_id is None:
 
 room = db.get_room_state()
 
+# 実験室がリセットされたら参加者をログイン画面へ戻す
+if not st.session_state.is_admin:
+
+    registered_player = db.get_player(
+        st.session_state.my_id
+    )
+
+    if registered_player is None:
+
+        st.session_state.my_id = None
+        st.session_state.player_number = None
+        st.session_state.screen = "decision"
+        st.session_state.decision_start_time = None
+
+        st.rerun()
+
+watch_room_reset()
+
 # DBのフェーズに参加者画面を同期
 if not st.session_state.is_admin:
 
@@ -301,6 +331,9 @@ if not st.session_state.is_admin:
 
     if room["phase"] == "finished":
         st.session_state.screen = "final_end"
+
+    elif room["phase"] == "final_result":
+        st.session_state.screen = "final_result"
 
     elif room["phase"] == "result":
         st.session_state.screen = "result"
@@ -348,14 +381,42 @@ if not room["is_started"]:
                 f"あと {required_players - len(players)} 人の参加を待っています。"
             )
 
-        if st.button("実験室をリセット"):
-            db.reset_room()
+        if "confirm_reset" not in st.session_state:
+            st.session_state.confirm_reset = False
 
-            st.session_state.my_id = None
-            st.session_state.player_number = None
-            st.session_state.is_admin = False
+        if not st.session_state.confirm_reset:
 
-            st.rerun()
+            if st.button("実験室をリセット"):
+                st.session_state.confirm_reset = True
+                st.rerun()
+
+        else:
+            st.warning(
+                "参加者情報と実験ログがすべて削除されます。"
+                "この操作は取り消せません。"
+            )
+
+            st.write("本当に実験室をリセットしますか？")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("キャンセル"):
+                    st.session_state.confirm_reset = False
+                    st.rerun()
+
+            with col2:
+                if st.button("リセットを実行", type="primary"):
+                    db.reset_room()
+
+                    st.session_state.confirm_reset = False
+                    st.session_state.my_id = None
+                    st.session_state.player_number = None
+                    st.session_state.is_admin = False
+                    st.session_state.screen = "decision"
+                    st.session_state.decision_start_time = None
+
+                    st.rerun()
 
     else:
 
@@ -402,16 +463,42 @@ if room["is_started"] and st.session_state.is_admin:
         if TEST_MODE:
             st.divider()
 
-            if st.button("実験室をリセット"):
-                db.reset_room()
+            if "confirm_reset" not in st.session_state:
+                st.session_state.confirm_reset = False
 
-                st.session_state.my_id = None
-                st.session_state.player_number = None
-                st.session_state.is_admin = False
-                st.session_state.screen = "decision"
-                st.session_state.decision_start_time = None
+            if not st.session_state.confirm_reset:
 
-                st.rerun()
+                if st.button("実験室をリセット"):
+                    st.session_state.confirm_reset = True
+                    st.rerun()
+
+            else:
+                st.warning(
+                    "参加者情報と実験ログがすべて削除されます。"
+                    "この操作は取り消せません。"
+                )
+
+                st.write("本当に実験室をリセットしますか？")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if st.button("キャンセル"):
+                        st.session_state.confirm_reset = False
+                        st.rerun()
+
+                with col2:
+                    if st.button("リセットを実行", type="primary"):
+                        db.reset_room()
+
+                        st.session_state.confirm_reset = False
+                        st.session_state.my_id = None
+                        st.session_state.player_number = None
+                        st.session_state.is_admin = False
+                        st.session_state.screen = "decision"
+                        st.session_state.decision_start_time = None
+
+                        st.rerun()
 
         st.stop()
 
@@ -424,16 +511,42 @@ if room["is_started"] and st.session_state.is_admin:
     st.write(f"フェーズ：{room['phase']}")
 
     if TEST_MODE:
-        if st.button("実験室をリセット"):
-            db.reset_room()
+        if "confirm_reset" not in st.session_state:
+            st.session_state.confirm_reset = False
 
-            st.session_state.my_id = None
-            st.session_state.player_number = None
-            st.session_state.is_admin = False
-            st.session_state.screen = "decision"
-            st.session_state.decision_start_time = None
+        if not st.session_state.confirm_reset:
 
-            st.rerun()
+            if st.button("実験室をリセット"):
+                st.session_state.confirm_reset = True
+                st.rerun()
+
+        else:
+            st.warning(
+                "参加者情報と実験ログがすべて削除されます。"
+                "この操作は取り消せません。"
+            )
+
+            st.write("本当に実験室をリセットしますか？")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("キャンセル"):
+                    st.session_state.confirm_reset = False
+                    st.rerun()
+
+            with col2:
+                if st.button("リセットを実行", type="primary"):
+                    db.reset_room()
+
+                    st.session_state.confirm_reset = False
+                    st.session_state.my_id = None
+                    st.session_state.player_number = None
+                    st.session_state.is_admin = False
+                    st.session_state.screen = "decision"
+                    st.session_state.decision_start_time = None
+
+                    st.rerun()
 
         st.divider()
         st.subheader("実験ログ")
@@ -508,7 +621,7 @@ if room["is_started"] and st.session_state.is_admin:
                 st.rerun()
 
 
-    elif room["phase"] == "result":
+    elif room["phase"] in ("result", "final_result"):
 
         confirmed_count = sum(
             player["result_confirmed"]

@@ -58,6 +58,12 @@ def init_db():
             ADD COLUMN result_confirmed INTEGER NOT NULL DEFAULT 0
         """)
 
+    if "explanation_confirmed" not in columns:
+        c.execute("""
+            ALTER TABLE players
+            ADD COLUMN explanation_confirmed INTEGER NOT NULL DEFAULT 0
+        """)
+
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS period_logs (
@@ -210,7 +216,8 @@ def get_player(player_id):
             response_time,
             has_submitted,
             success,
-            result_confirmed
+            result_confirmed,
+            explanation_confirmed
         FROM players
         WHERE player_id = ?
         """,
@@ -235,7 +242,8 @@ def get_player(player_id):
             if row[6] is not None
             else None
         ),
-        "result_confirmed": bool(row[7])
+        "result_confirmed": bool(row[7]),
+        "explanation_confirmed": bool(row[8])
     }
 
 def get_all_players():
@@ -251,7 +259,8 @@ def get_all_players():
             current_choice,
             response_time,
             has_submitted,
-            result_confirmed
+            result_confirmed,
+            explanation_confirmed
         FROM players
         ORDER BY player_number
         """
@@ -270,7 +279,8 @@ def get_all_players():
             "current_choice": row[3],
             "response_time": row[4],
             "has_submitted": bool(row[5]),
-            "result_confirmed": bool(row[6])
+            "result_confirmed": bool(row[6]),
+            "explanation_confirmed": bool(row[7])
         })
 
     return players
@@ -885,7 +895,7 @@ def confirm_result(player_id):
               SELECT 1
               FROM room_state
               WHERE id = 1
-                AND phase = 'result'
+                AND phase IN ('result', 'final_result')
           )
         """,
         (player_id,)
@@ -893,3 +903,53 @@ def confirm_result(player_id):
 
     conn.commit()
     conn.close()
+
+def start_explanation():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE room_state
+        SET phase = 'explanation'
+        WHERE id = 1
+          AND is_started = 0
+          AND phase = 'decision'
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def confirm_explanation(player_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE players
+        SET explanation_confirmed = 1
+        WHERE player_id = ?
+          AND EXISTS (
+              SELECT 1 FROM room_state
+              WHERE id = 1
+                AND phase = 'explanation'
+          )
+    """, (player_id,))
+
+    conn.commit()
+    conn.close()
+
+
+def get_explanation_confirmed_count():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT COUNT(*)
+        FROM players
+        WHERE explanation_confirmed = 1
+    """)
+
+    count = c.fetchone()[0]
+    conn.close()
+
+    return count
