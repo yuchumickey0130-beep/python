@@ -18,6 +18,7 @@ from config import (
     MAX_HIGH_INTERVAL,
     TEST_MODE,
     TEST_NUM_PLAYERS,
+    PRACTICE_MODE,
 )
 
 required_players = (
@@ -444,6 +445,13 @@ if not room["is_started"]:
             if confirmed_count == required_players:
                 st.success("全員が説明を確認しました。")
                 st.info("質問タイムを実施してください。")
+
+                if not PRACTICE_MODE:
+                    if st.button("本番を開始", type="primary"):
+                        high_periods = generate_high_periods()
+                        db.set_room_started(high_periods)
+                        st.rerun()
+
             else:
                 st.info("参加者が説明を確認しています。")
 
