@@ -102,7 +102,11 @@ def generate_high_periods():
 
         current_period = next_high
 
-    return high_periods
+    return [
+        period
+        for period in high_periods
+        if period != NUM_PERIODS
+    ]
 
 def plot_wealth_distribution(wealths, my_index):
 
@@ -209,11 +213,17 @@ def watch_admin_state():
         for player in players_now
     )
 
+    confirmed_count_now = sum(
+        player["result_confirmed"]
+        for player in players_now
+    )
+
     current_key = (
         room_now["game"],
         room_now["period"],
         room_now["phase"],
-        submitted_count_now
+        submitted_count_now,
+        confirmed_count_now
     )
 
     if "admin_state_key" not in st.session_state:
@@ -223,7 +233,7 @@ def watch_admin_state():
         st.session_state.admin_state_key = current_key
         st.rerun()
 
-if "period" not in st.session_state:
+if "screen" not in st.session_state:
     st.session_state.screen = "decision"
 
 if "decision_start_time" not in st.session_state:
@@ -499,6 +509,20 @@ if room["is_started"] and st.session_state.is_admin:
 
 
     elif room["phase"] == "result":
+
+        confirmed_count = sum(
+            player["result_confirmed"]
+            for player in players
+        )
+
+        st.write(
+            f"結果確認済み：{confirmed_count}/{required_players} 人"
+        )
+
+        if confirmed_count == required_players:
+            st.success("全員が結果を確認しました。")
+        else:
+            st.info("結果を確認していない参加者がいます。")
 
         st.success("結果を確定しました。")
         st.write("参加者は結果画面を確認中です。")
@@ -952,11 +976,135 @@ elif st.session_state.screen == "result":
                 my_index
             )
 
-    st.write("次の案内があるまでお待ちください。")
+    st.divider()
+
+    if player["result_confirmed"]:
+
+        st.success("結果を確認済みです。")
+        st.write("次の案内があるまでお待ちください。")
+
+    else:
+
+        st.write("結果を確認しましたか？")
+
+        col1, col2 = st.columns([1, 1])
+
+        with col1:
+            if st.button("はい", type="primary"):
+                db.confirm_result(st.session_state.my_id)
+                st.rerun()
+
+        with col2:
+            if st.button("いいえ"):
+                st.info("結果を確認してから「はい」を押してください。")
 
     wait_for_phase_change("result")
 
     st.stop()
+
+
+elif st.session_state.screen == "final_result":
+
+    room = db.get_room_state()
+    player = db.get_player(st.session_state.my_id)
+    players = db.get_all_players()
+
+    # 最終総資産と最終順位を計算
+    final_wealth = player["wealth"]
+
+    final_rank = 1 + sum(
+        other["wealth"] > final_wealth
+        for other in players
+    )
+
+    # ゲーム終了画面のヘッダー
+    st.caption(
+        f"反復投資実験　|　GAME {room['game']}"
+    )
+
+    st.markdown(
+        "<div style='height: 20px;'></div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<h1 style='text-align:center;'>"
+        "ゲーム終了"
+        "</h1>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<p style='text-align:center; color:gray;'>"
+        "すべてのターンが終了しました。"
+        "</p>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<div style='height: 20px;'></div>",
+        unsafe_allow_html=True
+    )
+
+    # 最終順位・最終総資産
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="最終順位",
+            value=f"{final_rank}位",
+            help=f"{len(players)}人中"
+        )
+        st.caption(f"{len(players)}人中")
+
+    with col2:
+        st.metric(
+            label="最終総資産",
+            value=f"{final_wealth:,.0f}",
+        )
+        st.caption("ポイント")
+
+    st.divider()
+
+    # 結果確認
+    if player["result_confirmed"]:
+
+        st.success("結果を確認済みです。")
+        st.write(
+            "次の案内があるまでお待ちください。"
+        )
+
+    else:
+
+        st.write("結果を確認しましたか？")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button(
+                "はい",
+                type="primary",
+                use_container_width=True
+            ):
+                db.confirm_result(
+                    st.session_state.my_id
+                )
+                st.rerun()
+
+        with col2:
+            if st.button(
+                "いいえ",
+                use_container_width=True
+            ):
+                st.info(
+                    "結果を確認してから「はい」を押してください。"
+                )
+
+    # 管理者が次のゲームへ進めるまで待機
+    wait_for_phase_change("final_result")
+
+    st.stop()
+
 
 elif st.session_state.screen == "final_end":
 

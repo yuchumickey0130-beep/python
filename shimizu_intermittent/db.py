@@ -2,7 +2,10 @@ import sqlite3
 import json
 import random
 
-from config import INTEREST_RATE
+from config import (
+    INTEREST_RATE,
+    NUM_PERIODS
+)
 
 DB_NAME = "experiment_room.db"
 
@@ -41,6 +44,19 @@ def init_db():
             success INTEGER
         )
     """)
+
+    # 既存DBにも結果確認用の列を追加
+    c.execute("PRAGMA table_info(players)")
+    columns = [
+        row[1]
+        for row in c.fetchall()
+    ]
+
+    if "result_confirmed" not in columns:
+        c.execute("""
+            ALTER TABLE players
+            ADD COLUMN result_confirmed INTEGER NOT NULL DEFAULT 0
+        """)
 
     c.execute(
         """
@@ -193,7 +209,8 @@ def get_player(player_id):
             current_choice,
             response_time,
             has_submitted,
-            success
+            success,
+            result_confirmed
         FROM players
         WHERE player_id = ?
         """,
@@ -217,7 +234,8 @@ def get_player(player_id):
             bool(row[6])
             if row[6] is not None
             else None
-        )
+        ),
+        "result_confirmed": bool(row[7])
     }
 
 def get_all_players():
@@ -232,7 +250,8 @@ def get_all_players():
             wealth,
             current_choice,
             response_time,
-            has_submitted
+            has_submitted,
+            result_confirmed
         FROM players
         ORDER BY player_number
         """
@@ -250,7 +269,8 @@ def get_all_players():
             "wealth": row[2],
             "current_choice": row[3],
             "response_time": row[4],
-            "has_submitted": bool(row[5])
+            "has_submitted": bool(row[5]),
+            "result_confirmed": bool(row[6])
         })
 
     return players
@@ -497,8 +517,17 @@ def finalize_period(success_capacity, return_multiplier):
         for player in updated_players
     ]
 
+    # 最終ターンのみ、専用の最終結果画面へ移行
+    next_phase = (
+        "final_result"
+        if period == NUM_PERIODS
+        else "result"
+    )
+    
+
     # HIGHターンなら、このターン終了時の資産情報を公開
-    if period in high_periods:
+    if period in high_periods and period != NUM_PERIODS:
+
         c.execute(
             """
             UPDATE room_state
@@ -586,7 +615,7 @@ def finalize_period(success_capacity, return_multiplier):
         """
         UPDATE room_state
         SET
-            phase = 'result',
+            phase = ?,
             num_invested = ?,
             num_success = ?,
             num_failed = ?,
@@ -594,6 +623,7 @@ def finalize_period(success_capacity, return_multiplier):
         WHERE id = 1
         """,
         (
+            next_phase,
             num_invested,
             num_success,
             num_failed,
@@ -631,7 +661,8 @@ def advance_to_next_period():
             current_choice = NULL,
             response_time = NULL,
             has_submitted = 0,
-            success = NULL
+            success = NULL,
+            result_confirmed = 0
         """
     )
 
@@ -671,7 +702,8 @@ def start_next_game(initial_wealth, high_periods):
             current_choice = NULL,
             response_time = NULL,
             has_submitted = 0,
-            success = NULL
+            success = NULL,
+            result_confirmed = 0
         """,
         (initial_wealth,)
     )
@@ -838,3 +870,26 @@ def get_period_logs():
     conn.close()
 
     return [dict(row) for row in rows]
+
+def confirm_result(player_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute(
+        """
+        UPDATE players
+        SET result_confirmed = 1
+        WHERE player_id = ?
+          AND result_confirmed = 0
+          AND EXISTS (
+              SELECT 1
+              FROM room_state
+              WHERE id = 1
+                AND phase = 'result'
+          )
+        """,
+        (player_id,)
+    )
+
+    conn.commit()
+    conn.close()
