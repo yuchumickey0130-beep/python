@@ -194,6 +194,62 @@ def plot_wealth_distribution(wealths, my_index):
 
     st.pyplot(fig)
 
+def show_example_decision():
+    st.caption("【説明用の画面例】実際の操作はできません")
+
+    with st.container(border=True):
+        st.subheader(f"反復投資実験（ターン3/{NUM_PERIODS}）")
+        st.write("あなたは Player 1 です。")
+
+        st.write("現在の総資産：500 ポイント")
+        st.write("今回の投資額：50 ポイント")
+
+        st.divider()
+
+        st.write("今回、投資しますか？")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.button(
+                "投資する",
+                disabled=True,
+                use_container_width=True,
+                key="example_invest"
+            )
+
+        with col2:
+            st.button(
+                "投資しない",
+                disabled=True,
+                use_container_width=True,
+                key="example_no_invest"
+            )
+
+
+def show_example_wealth_distribution():
+    st.caption("【説明用の画面例】架空の資産データです")
+
+    with st.container(border=True):
+        st.write("表示中の資産情報：ターン2 終了時")
+        st.write("次回の資産情報更新まで：あと2ターン")
+
+        example_wealths = [
+            500, 550, 550, 580,
+            500, 600, 550, 580
+        ]
+
+        plot_wealth_distribution(
+            example_wealths,
+            my_index=0
+        )
+
+        st.info(
+            "オレンジ色が自分、青色が他の参加者です。"
+            "資産情報が更新されない間は、"
+            "前回公開された分布が表示されます。"
+        )
+
 @st.fragment(run_every=2)
 def wait_for_phase_change(current_phase):
 
@@ -349,9 +405,9 @@ if not room["is_started"]:
 
     players = db.get_all_players()
 
-    st.subheader("実験開始待機")
-
     if st.session_state.is_admin:
+
+        st.subheader("実験管理")
 
         st.write("管理者モード")
         st.write(f"現在の参加者：{len(players)} / {required_players}")
@@ -364,22 +420,32 @@ if not room["is_started"]:
 
         st.divider()
 
-        if len(players) == required_players:
+        if room["phase"] == "decision":
 
-            if st.button(
-                "実験を開始",
-                type="primary"
-            ):
-                high_periods = generate_high_periods()
+            if len(players) == required_players:
 
-                db.set_room_started(high_periods)
+                if st.button("説明開始", type="primary"):
+                    db.start_explanation()
+                    st.rerun()
 
-                st.rerun()
+            else:
+                st.info(
+                    f"あと {required_players - len(players)} 人の参加を待っています。"
+                )
 
-        else:
-            st.info(
-                f"あと {required_players - len(players)} 人の参加を待っています。"
+        elif room["phase"] == "explanation":
+
+            confirmed_count = db.get_explanation_confirmed_count()
+
+            st.write(
+                f"説明確認済み：{confirmed_count}/{required_players} 人"
             )
+
+            if confirmed_count == required_players:
+                st.success("全員が説明を確認しました。")
+                st.info("質問タイムを実施してください。")
+            else:
+                st.info("参加者が説明を確認しています。")
 
         if "confirm_reset" not in st.session_state:
             st.session_state.confirm_reset = False
@@ -420,18 +486,174 @@ if not room["is_started"]:
 
     else:
 
-        st.write(
-            f"あなたは Player "
-            f"{st.session_state.player_number} です。"
-        )
+        if room["phase"] == "explanation":
 
-        st.write(
-            "他の参加者と実験開始を待っています。"
-        )
+            st.subheader("投資判断実験の説明")
 
-        st.write(
-            f"現在の参加者：{len(players)} / {required_players}"
-        )
+            st.write(
+                "この実験では、複数の参加者が繰り返し投資の判断を行います。"
+                "以下のルールをよく読み、内容を理解してから実験に参加してください。"
+            )
+
+            st.markdown("### 1. 実験の基本ルール")
+
+            st.markdown("""
+    - この実験には、あなたを含めて8人が参加します。
+    - 全員の初期資産は500ポイントです。
+    - 各ターンで「投資する」「投資しない」のどちらかを選択します。
+    - 各ターンの終了後に投資結果が確定し、資産が更新されます。
+    - 更新された資産をもとに、次のターンの投資判断を行います。
+    """)
+
+            st.markdown("### 2. 投資に使うポイント")
+
+            st.write(
+                "各ターンでは、現在の資産の10％に相当するポイントを受け取ります。"
+                "このポイントを投資するか、そのまま受け取るかを選択します。"
+            )
+
+            st.info(
+                "例：現在の資産が500ポイントの場合、"
+                "投資に使えるポイントは50ポイントです。"
+            )
+
+            st.write(
+                "投資に使えるポイントは、各ターンの開始時点の資産によって変わります。"
+            )
+
+            st.markdown("### 3. 投資結果と資産の変化")
+
+            st.markdown("""
+    **投資しない場合**
+
+    投資に使えるポイントが、そのまま資産に加算されます。
+
+    **投資して成功した場合**
+
+    投資したポイントの1.6倍が資産に加算されます。
+
+    **投資して失敗した場合**
+
+    投資したポイントは受け取れません。
+    ただし、それまでに保有していた資産が減ることはありません。
+    """)
+
+            st.write(
+                "例えば、現在の資産が500ポイント、"
+                "投資に使えるポイントが50ポイントの場合、"
+                "結果は次のようになります。"
+            )
+
+            st.table({
+                "選択・結果": [
+                    "投資しない",
+                    "投資して成功",
+                    "投資して失敗"
+                ],
+                "次のターンの資産": [
+                    "550ポイント",
+                    "580ポイント",
+                    "500ポイント"
+                ]
+            })
+
+            st.markdown("#### 投資判断画面の例")
+            show_example_decision()
+
+            st.markdown("### 4. 投資の成功条件")
+
+            st.write(
+                "各ターンで、投資に成功できる人数は最大4人です。"
+            )
+
+            st.markdown("""
+    - 投資する人が4人以下の場合、投資した人は全員成功します。
+    - 投資する人が5人以上の場合、投資した人の中からランダムに4人が選ばれ、成功します。
+    - 選ばれなかった人は投資失敗となります。
+    """)
+
+            st.write(
+                "他の参加者がどのような選択をするかによって、"
+                "投資の成功・失敗が変わる場合があります。"
+            )
+
+            st.markdown("### 5. 資産情報の表示について")
+
+            st.write(
+                "実験中は、自分の資産や投資結果を確認できます。"
+            )
+
+            st.write(
+                "また、特定のターンの終了時には、"
+                "他の参加者を含む資産分布の情報が更新されます。"
+            )
+
+            st.write(
+                "資産情報が更新されないターンでは、"
+                "以前に公開された資産分布が引き続き表示されます。"
+            )
+
+            st.warning(
+                "表示されている他の参加者の資産が、"
+                "必ずしも現在の資産とは限りません。"
+            )
+
+            st.markdown("#### 資産分布画面の例")
+            show_example_wealth_distribution()
+
+            st.markdown("### 6. 実験の進め方")
+
+            st.markdown("""
+    1. 説明を読み終えたら「説明を確認しました」を押してください。
+    2. 質問がある場合は挙手し、実験担当者に確認してください。
+    3. 全員の確認後、1ターンの練習を行います。
+    4. 練習終了後、本番の実験を開始します。
+    5. 本番では初期資産500ポイントから開始し、複数ターンの投資判断を繰り返します。
+    """)
+
+            st.write(
+                "各ターンでは、自分で投資するかどうかを判断してください。"
+                "選択後は、管理者の案内に従って次の画面へ進んでください。"
+            )
+
+            st.divider()
+
+            if player["explanation_confirmed"]:
+
+                st.success("説明を確認済みです。")
+                st.write(
+                    "練習開始まで、説明を自由に"
+                    "読み返してください。"
+                )
+
+            else:
+
+                if st.button(
+                    "説明を確認しました",
+                    type="primary"
+                ):
+                    db.confirm_explanation(
+                        st.session_state.my_id
+                    )
+                    st.rerun()
+
+        else:
+
+            st.subheader("しばらくお待ちください")
+
+            st.write(
+                f"あなたは Player "
+                f"{st.session_state.player_number} です。"
+            )
+
+            st.write(
+                "管理者からの案内があるまで、"
+                "この画面でお待ちください。"
+            )
+
+            st.write(
+                f"現在の参加者：{len(players)} / {required_players}"
+            )
 
     time.sleep(2)
     st.rerun()
