@@ -427,6 +427,8 @@ def finalize_period(success_capacity, return_multiplier):
         conn.close()
         return
 
+    is_practice = row[2] == "practice_decision"
+
     game = row[0]
     period = row[1]
     high_periods = json.loads(row[3])
@@ -528,15 +530,16 @@ def finalize_period(success_capacity, return_multiplier):
     ]
 
     # 最終ターンのみ、専用の最終結果画面へ移行
-    next_phase = (
-        "final_result"
-        if period == NUM_PERIODS
-        else "result"
-    )
+    if is_practice:
+        next_phase = "practice_result"
+    elif period == NUM_PERIODS:
+        next_phase = "final_result"
+    else:
+        next_phase = "result"
     
 
     # HIGHターンなら、このターン終了時の資産情報を公開
-    if period in high_periods and period != NUM_PERIODS:
+    if not is_practice and period in high_periods and period != NUM_PERIODS:
 
         c.execute(
             """
@@ -570,54 +573,55 @@ def finalize_period(success_capacity, return_multiplier):
     ]
 
     # 各Playerのログを完成させる
-    for i, player in enumerate(updated_players):
+    if not is_practice:
+        for i, player in enumerate(updated_players):
 
-        player_id = player[0]
-        wealth_after = player[2]
-        choice = player[3]
-        success = player[4]
+            player_id = player[0]
+            wealth_after = player[2]
+            choice = player[3]
+            success = player[4]
 
-        if choice == "Invest":
-            if success:
-                result = "Success"
+            if choice == "Invest":
+                if success:
+                    result = "Success"
+                else:
+                    result = "Failure"
             else:
-                result = "Failure"
-        else:
-            result = "Not Invest"
+                result = "Not Invest"
 
-        c.execute(
-            """
-            UPDATE period_logs
-            SET
-                result = ?,
-                wealth_after = ?,
-                rank_after = ?,
-                wealth_gap_after = ?,
-                num_invested = ?,
-                num_success = ?,
-                num_failed = ?,
-                num_not_invested = ?,
-                group_wealths_after = ?
-            WHERE
-                game = ?
-                AND player_id = ?
-                AND period = ?
-            """,
-            (
-                result,
-                wealth_after,
-                ranks_after[i],
-                wealth_gaps_after[i],
-                num_invested,
-                num_success,
-                num_failed,
-                num_not_invested,
-                json.dumps(group_wealths_after),
-                game,
-                player_id,
-                period
+            c.execute(
+                """
+                UPDATE period_logs
+                SET
+                    result = ?,
+                    wealth_after = ?,
+                    rank_after = ?,
+                    wealth_gap_after = ?,
+                    num_invested = ?,
+                    num_success = ?,
+                    num_failed = ?,
+                    num_not_invested = ?,
+                    group_wealths_after = ?
+                WHERE
+                    game = ?
+                    AND player_id = ?
+                    AND period = ?
+                """,
+                (
+                    result,
+                    wealth_after,
+                    ranks_after[i],
+                    wealth_gaps_after[i],
+                    num_invested,
+                    num_success,
+                    num_failed,
+                    num_not_invested,
+                    json.dumps(group_wealths_after),
+                    game,
+                    player_id,
+                    period
+                )
             )
-        )
 
 
     # ターン全体の結果を保存し、Resultフェーズへ
@@ -895,7 +899,7 @@ def confirm_result(player_id):
               SELECT 1
               FROM room_state
               WHERE id = 1
-                AND phase IN ('result', 'final_result')
+                AND phase IN ('result', 'final_result', 'practice_result')
           )
         """,
         (player_id,)
@@ -953,3 +957,151 @@ def get_explanation_confirmed_count():
     conn.close()
 
     return count
+
+def start_practice():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE room_state
+        SET phase = 'practice_decision'
+        WHERE id = 1
+          AND is_started = 0
+          AND phase = 'explanation'
+          AND (
+              SELECT COUNT(*)
+              FROM players
+              WHERE explanation_confirmed = 1
+          ) = (
+              SELECT COUNT(*)
+              FROM players
+          )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def submit_practice_choice(player_id, choice, response_time):
+    if choice not in ("Invest", "Not Invest"):
+        return
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE players
+        SET
+            current_choice = ?,
+            response_time = ?,
+            has_submitted = 1
+        WHERE player_id = ?
+          AND has_submitted = 0
+          AND EXISTS (
+              SELECT 1
+              FROM room_state
+              WHERE id = 1
+                AND phase = 'practice_decision'
+                AND is_started = 0
+          )
+    """, (choice, response_time, player_id))
+
+    conn.commit()
+    conn.close()
+
+def finalize_practice(success_capacity, return_multiplier):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT
+            (SELECT phase FROM room_state WHERE id = 1),
+            (SELECT COUNT(*) FROM players),
+            (SELECT COUNT(*) FROM players WHERE has_submitted = 1)
+    """)
+
+    phase, player_count, submitted_count = c.fetchone()
+    conn.close()
+
+    if (
+        phase != "practice_decision"
+        or player_count == 0
+        or submitted_count != player_count
+    ):
+        return
+
+    finalize_period(success_capacity, return_multiplier)
+
+def finish_practice():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE room_state
+        SET phase = 'practice_waiting'
+        WHERE id = 1
+          AND phase = 'practice_result'
+          AND is_started = 0
+          AND (
+              SELECT COUNT(*)
+              FROM players
+              WHERE result_confirmed = 1
+          ) = (
+              SELECT COUNT(*)
+              FROM players
+          )
+          AND (SELECT COUNT(*) FROM players) > 0
+    """)
+
+    conn.commit()
+    conn.close()
+
+def start_main_after_practice(initial_wealth, high_periods):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # 練習終了後の待機状態であることを確認
+    c.execute("""
+        SELECT phase, is_started
+        FROM room_state
+        WHERE id = 1
+    """)
+
+    room = c.fetchone()
+
+    if room is None or room[0] != "practice_waiting" or room[1]:
+        conn.close()
+        return
+
+    # 全参加者の状態を初期化
+    c.execute("""
+        UPDATE players
+        SET
+            wealth = ?,
+            current_choice = NULL,
+            response_time = NULL,
+            has_submitted = 0,
+            success = NULL,
+            result_confirmed = 0
+    """, (initial_wealth,))
+
+    # 本番用の実験状態を初期化
+    c.execute("""
+        UPDATE room_state
+        SET
+            game = 1,
+            period = 1,
+            phase = 'decision',
+            is_started = 1,
+            experiment_over = 0,
+            high_periods = ?,
+            published_period = NULL,
+            published_wealths = NULL,
+            num_invested = NULL,
+            num_success = NULL,
+            num_failed = NULL,
+            num_not_invested = NULL
+        WHERE id = 1
+    """, (json.dumps(high_periods),))
+
+    conn.commit()
+    conn.close()

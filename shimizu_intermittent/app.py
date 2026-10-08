@@ -446,7 +446,12 @@ if not room["is_started"]:
                 st.success("全員が説明を確認しました。")
                 st.info("質問タイムを実施してください。")
 
-                if not PRACTICE_MODE:
+                if PRACTICE_MODE:
+                    if st.button("練習を開始", type="primary"):
+                        db.start_practice()
+                        st.rerun()
+
+                else:
                     if st.button("本番を開始", type="primary"):
                         high_periods = generate_high_periods()
                         db.set_room_started(high_periods)
@@ -454,6 +459,82 @@ if not room["is_started"]:
 
             else:
                 st.info("参加者が説明を確認しています。")
+
+        elif room["phase"] == "practice_decision":
+
+            st.subheader("練習モード")
+
+            submitted_count = sum(
+                player["has_submitted"]
+                for player in players
+            )
+
+            st.write(
+                f"練習回答済み：{submitted_count}/{required_players} 人"
+            )
+
+            if submitted_count == required_players:
+                st.success("全員の練習回答が揃いました。")
+
+                if st.button("練習結果を確定", type="primary"):
+                    db.finalize_practice(
+                        SUCCESS_CAPACITY,
+                        RETURN_MULTIPLIER
+                    )
+                    st.rerun()
+
+            else:
+                st.info("参加者の回答を待っています。")
+
+        elif room["phase"] == "practice_result":
+
+            st.subheader("練習結果")
+
+            confirmed_count = sum(
+                player["result_confirmed"]
+                for player in players
+            )
+
+            st.write(
+                f"結果確認済み：{confirmed_count}/{required_players} 人"
+            )
+
+            if confirmed_count == required_players:
+
+                st.success("全員が練習結果を確認しました。")
+
+                if st.button("練習を終了", type="primary"):
+                    db.finish_practice()
+                    st.rerun()
+
+            st.write(f"投資した人数：{room['num_invested']} 人")
+            st.write(f"成功した人数：{room['num_success']} 人")
+            st.write(f"失敗した人数：{room['num_failed']} 人")
+            st.write(f"投資しなかった人数：{room['num_not_invested']} 人")
+
+            st.info("参加者が練習結果を確認しています。")
+
+        elif room["phase"] == "practice_waiting":
+
+            st.subheader("本番開始の準備")
+
+            st.success("全員の練習が終了しました。")
+
+            st.write(
+                "本番では全参加者の資産を500ポイントに戻し、"
+                "ゲーム1・ターン1から開始します。"
+            )
+
+            if st.button("本番を開始", type="primary"):
+
+                high_periods = generate_high_periods()
+
+                db.start_main_after_practice(
+                    INITIAL_WEALTH,
+                    high_periods
+                )
+
+                st.rerun()
 
         if "confirm_reset" not in st.session_state:
             st.session_state.confirm_reset = False
@@ -644,6 +725,142 @@ if not room["is_started"]:
                         st.session_state.my_id
                     )
                     st.rerun()
+
+        elif room["phase"] == "practice_decision":
+
+            st.subheader("練習モード（1ターン）")
+
+            st.write(
+                f"あなたは Player {st.session_state.player_number} です。"
+            )
+
+            wealth = player["wealth"]
+            investment = wealth * INTEREST_RATE
+
+            st.write(f"現在の総資産：{wealth:,.0f} ポイント")
+            st.write(f"今回の投資額：{investment:,.0f} ポイント")
+
+            st.info(
+                "本番と同じルールで投資判断を行ってください。"
+                "練習の結果は本番の記録には含まれません。"
+            )
+
+            if player["has_submitted"]:
+
+                st.success("練習の回答を提出しました。")
+                st.write("他の参加者の回答を待っています。")
+
+            else:
+
+                if "practice_start_time" not in st.session_state:
+                    st.session_state.practice_start_time = time.time()
+
+                st.write("投資するかどうかを選択してください。")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if st.button(
+                        "投資する",
+                        key="practice_invest",
+                        type="primary"
+                    ):
+                        response_time = (
+                            time.time()
+                            - st.session_state.practice_start_time
+                        )
+
+                        db.submit_practice_choice(
+                            st.session_state.my_id,
+                            "Invest",
+                            response_time
+                        )
+
+                        st.rerun()
+
+                with col2:
+                    if st.button(
+                        "投資しない",
+                        key="practice_not_invest"
+                    ):
+                        response_time = (
+                            time.time()
+                            - st.session_state.practice_start_time
+                        )
+
+                        db.submit_practice_choice(
+                            st.session_state.my_id,
+                            "Not Invest",
+                            response_time
+                        )
+
+                        st.rerun()
+
+        elif room["phase"] == "practice_result":
+
+            st.subheader("練習結果")
+
+            wealth_after = player["wealth"]
+            choice = player["current_choice"]
+            success = player["success"]
+
+            # 練習開始時の資産は500ポイント
+            wealth_before = INITIAL_WEALTH
+            investment = wealth_before * INTEREST_RATE
+            acquired_assets = wealth_after - wealth_before
+
+            if choice == "Invest":
+                if success:
+                    st.success("あなたの投資は成功しました。")
+                else:
+                    st.error("あなたの投資は失敗しました。")
+            else:
+                st.info("あなたは投資しませんでした。")
+
+            st.write(f"あなたの投資額：{investment:,.0f} ポイント")
+
+            st.write(f"投資した人数：{room['num_invested']} 人")
+            st.write(f"成功した人数：{room['num_success']} 人")
+            st.write(f"失敗した人数：{room['num_failed']} 人")
+            st.write(f"投資しなかった人数：{room['num_not_invested']} 人")
+
+            st.divider()
+
+            st.write(f"今期獲得した資産：{acquired_assets:,.0f} ポイント")
+            st.markdown(
+                f"**現在の総資産：{wealth_after:,.0f} ポイント**"
+            )
+
+            st.divider()
+
+            if player["result_confirmed"]:
+                st.success("練習結果を確認済みです。")
+                st.write("管理者からの案内をお待ちください。")
+
+            else:
+                if st.button("練習結果を確認しました", type="primary"):
+                    db.confirm_result(st.session_state.my_id)
+                    st.rerun()
+
+        elif room["phase"] == "practice_waiting":
+
+            st.subheader("練習終了")
+
+            st.success("練習が終了しました。")
+
+            st.write(
+                f"あなたは Player {st.session_state.player_number} です。"
+            )
+
+            st.write(
+                "これから本番の実験を開始します。"
+                "管理者からの案内があるまでお待ちください。"
+            )
+
+            st.info(
+                "本番は初期資産500ポイントから開始します。"
+                "練習結果は本番には引き継がれません。"
+            )
 
         else:
 
