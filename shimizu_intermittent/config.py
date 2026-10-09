@@ -18,7 +18,9 @@ MAX_HIGH_INTERVAL = 3
 # Development settings
 # =========================
 
-TEST_MODE = True
+TEST_MODE = False
 TEST_NUM_PLAYERS = 2
 
 PRACTICE_MODE = True
+
+ALLOW_ADMIN_RESET = True

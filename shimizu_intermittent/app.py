@@ -19,6 +19,7 @@ from config import (
     TEST_MODE,
     TEST_NUM_PLAYERS,
     PRACTICE_MODE,
+    ALLOW_ADMIN_RESET,
 )
 
 required_players = (
@@ -251,13 +252,19 @@ def show_example_wealth_distribution():
             "前回公開された分布が表示されます。"
         )
 
+
 @st.fragment(run_every=2)
-def wait_for_phase_change(current_phase):
+def wait_for_phase_change(current_phase, current_game, current_period):
 
     room_now = db.get_room_state()
 
-    if room_now["phase"] != current_phase:
-        st.rerun()
+    if (
+        room_now["phase"] != current_phase
+        or room_now["game"] != current_game
+        or room_now["period"] != current_period
+    ):
+        st.rerun(scope="app")
+
 
 @st.fragment(run_every=2)
 def watch_admin_state():
@@ -348,7 +355,7 @@ if st.session_state.my_id is None:
 
             if player_number is None:
                 st.error(
-                    "参加人数が上限の8人に達しています。"
+                    f"参加人数が上限の{required_players}人に達しています。"
                 )
 
             else:
@@ -832,6 +839,30 @@ if not room["is_started"]:
             )
 
             st.divider()
+            
+            # 練習終了時の全参加者の資産分布を表示
+            practice_players = db.get_all_players()
+
+            practice_wealths = [
+                p["wealth"]
+                for p in practice_players
+            ]
+
+            my_index = player["player_number"] - 1
+
+            st.subheader("練習終了時の資産分布")
+
+            plot_wealth_distribution(
+                practice_wealths,
+                my_index
+            )
+
+            st.info(
+                "オレンジ色が自分、青色が他の参加者です。"
+                "本番では、この資産分布が特定のターンに更新されます。"
+            )
+
+            st.divider()
 
             if player["result_confirmed"]:
                 st.success("練習結果を確認済みです。")
@@ -928,7 +959,7 @@ if room["is_started"] and st.session_state.is_admin:
                 mime="text/csv"
             )
 
-        if TEST_MODE:
+        if ALLOW_ADMIN_RESET:
             st.divider()
 
             if "confirm_reset" not in st.session_state:
@@ -978,7 +1009,7 @@ if room["is_started"] and st.session_state.is_admin:
     st.write(f"ターン：{room['period']}")
     st.write(f"フェーズ：{room['phase']}")
 
-    if TEST_MODE:
+    if ALLOW_ADMIN_RESET:
         if "confirm_reset" not in st.session_state:
             st.session_state.confirm_reset = False
 
@@ -1428,8 +1459,12 @@ elif st.session_state.screen == "waiting_submission":
     st.write(
         "他の参加者の回答を待っています。"
     )
-
-    wait_for_phase_change("decision")
+    
+    wait_for_phase_change(
+        "decision",
+        room["game"],
+        room["period"]
+    )
 
     st.stop()
 
@@ -1578,8 +1613,12 @@ elif st.session_state.screen == "result":
         with col2:
             if st.button("いいえ"):
                 st.info("結果を確認してから「はい」を押してください。")
-
-    wait_for_phase_change("result")
+    
+    wait_for_phase_change(
+        "result",
+        room["game"],
+        room["period"]
+    )
 
     st.stop()
 
@@ -1682,10 +1721,13 @@ elif st.session_state.screen == "final_result":
                 )
 
     # 管理者が次のゲームへ進めるまで待機
-    wait_for_phase_change("final_result")
+    wait_for_phase_change(
+        "final_result",
+        room["game"],
+        room["period"]
+    )
 
     st.stop()
-
 
 elif st.session_state.screen == "final_end":
 

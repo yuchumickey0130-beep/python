@@ -4,7 +4,10 @@ import random
 
 from config import (
     INTEREST_RATE,
-    NUM_PERIODS
+    NUM_PERIODS,
+    NUM_PLAYERS,
+    TEST_MODE,
+    TEST_NUM_PLAYERS,
 )
 
 DB_NAME = "experiment_room.db"
@@ -169,10 +172,14 @@ def register_player(player_id, initial_wealth):
     c.execute("SELECT COUNT(*) FROM players")
     player_count = c.fetchone()[0]
 
-    # 8人埋まっていたら登録しない
-    if player_count >= 8:
+    
+    # テストモードに応じて参加人数の上限を切り替える
+    max_players = TEST_NUM_PLAYERS if TEST_MODE else NUM_PLAYERS
+
+    if player_count >= max_players:
         conn.close()
         return None
+
 
     # 登録順に Player 1, 2, ... と割り振る
     player_number = player_count + 1
