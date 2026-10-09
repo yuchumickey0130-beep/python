@@ -880,9 +880,30 @@ if not room["is_started"]:
                 f"現在の参加者：{len(players)} / {required_players}"
             )
 
-    time.sleep(2)
-    st.rerun()
+    @st.fragment(run_every=2)
+    def watch_prestart_state():
+        room_now = db.get_room_state()
+        players_now = db.get_all_players()
 
+        state_key = (
+            room_now["phase"],
+            room_now["is_started"],
+            len(players_now),
+            sum(p["has_submitted"] for p in players_now),
+            sum(p["explanation_confirmed"] for p in players_now),
+            sum(p["result_confirmed"] for p in players_now),
+        )
+
+        if "prestart_state_key" not in st.session_state:
+            st.session_state.prestart_state_key = state_key
+
+        elif st.session_state.prestart_state_key != state_key:
+            st.session_state.prestart_state_key = state_key
+            st.rerun(scope="app")
+
+    watch_prestart_state()
+    st.stop()
+    
 # 実験開始後の管理者画面
 if room["is_started"] and st.session_state.is_admin:
 

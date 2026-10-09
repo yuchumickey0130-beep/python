@@ -423,7 +423,7 @@ def finalize_period(success_capacity, return_multiplier):
 
     row = c.fetchone()
 
-    if row is None or row[2] != "decision":
+    if row is None or row[2] not in ("decision", "practice_decision"):
         conn.close()
         return
 
