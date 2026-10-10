@@ -122,7 +122,7 @@ def plot_wealth_distribution(wealths, my_index):
 
     wealth_counts = Counter(other_wealths)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(7, 5), dpi=100)
 
     bar_width = 4
 
@@ -194,7 +194,8 @@ def plot_wealth_distribution(wealths, my_index):
         fontsize=8
     )
 
-    st.pyplot(fig)
+    st.pyplot(fig, width=700)
+    plt.close(fig)
 
 def show_example_decision():
     st.caption("【説明用の画面例】実際の操作はできません")
@@ -818,11 +819,17 @@ if not room["is_started"]:
 
             if choice == "Invest":
                 if success:
-                    st.success("あなたの投資は成功しました。")
+                    st.markdown(
+                        "**あなたは投資しました。**\n\n"
+                        "**あなたの投資は成功しました。**"
+                    )
                 else:
-                    st.error("あなたの投資は失敗しました。")
+                    st.markdown(
+                        "**あなたは投資しました。**\n\n"
+                        "**あなたの投資は失敗しました。**"
+                    )
             else:
-                st.info("あなたは投資しませんでした。")
+                st.markdown("**あなたは投資しませんでした。**")
 
             st.write(f"あなたの投資額：{investment:,.0f} ポイント")
 
@@ -910,29 +917,42 @@ if not room["is_started"]:
             st.write(
                 f"現在の参加者：{len(players)} / {required_players}"
             )
-
+    
     @st.fragment(run_every=2)
-    def watch_prestart_state():
+    def watch_prestart_state(
+        displayed_phase,
+        displayed_started,
+        displayed_player_count,
+        displayed_submitted,
+        displayed_explanation_confirmed,
+        displayed_result_confirmed
+    ):
         room_now = db.get_room_state()
         players_now = db.get_all_players()
 
-        state_key = (
-            room_now["phase"],
-            room_now["is_started"],
-            len(players_now),
-            sum(p["has_submitted"] for p in players_now),
-            sum(p["explanation_confirmed"] for p in players_now),
-            sum(p["result_confirmed"] for p in players_now),
-        )
-
-        if "prestart_state_key" not in st.session_state:
-            st.session_state.prestart_state_key = state_key
-
-        elif st.session_state.prestart_state_key != state_key:
-            st.session_state.prestart_state_key = state_key
+        if (
+            room_now["phase"] != displayed_phase
+            or room_now["is_started"] != displayed_started
+            or len(players_now) != displayed_player_count
+            or sum(p["has_submitted"] for p in players_now)
+            != displayed_submitted
+            or sum(p["explanation_confirmed"] for p in players_now)
+            != displayed_explanation_confirmed
+            or sum(p["result_confirmed"] for p in players_now)
+            != displayed_result_confirmed
+        ):
             st.rerun(scope="app")
 
-    watch_prestart_state()
+
+    watch_prestart_state(
+        room["phase"],
+        room["is_started"],
+        len(players),
+        sum(p["has_submitted"] for p in players),
+        sum(p["explanation_confirmed"] for p in players),
+        sum(p["result_confirmed"] for p in players)
+    )
+
     st.stop()
     
 # 実験開始後の管理者画面
