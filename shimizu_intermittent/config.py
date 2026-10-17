@@ -2,7 +2,7 @@
 # Experiment settings
 # =========================
 
-NUM_PERIODS = 18
+NUM_PERIODS = 22
 NUM_PLAYERS = 8
 SUCCESS_CAPACITY = 4
 

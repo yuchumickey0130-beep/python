@@ -79,36 +79,29 @@ def render_brand_badge():
         unsafe_allow_html=True
     )
 
+
 def generate_high_periods():
-    high_periods = []
-
-    first_high = random.randint(
+    intervals = list(range(
         MIN_HIGH_INTERVAL,
-        MAX_HIGH_INTERVAL
-    )
+        MAX_HIGH_INTERVAL + 1
+    ))
 
-    high_periods.append(first_high)
-    current_period = first_high
+    random.shuffle(intervals)
 
-    while True:
-        interval = random.randint(
-            MIN_HIGH_INTERVAL,
-            MAX_HIGH_INTERVAL
-        )
+    # 1ターン目の終了時に初回公開
+    high_periods = [1]
+    current_period = 1
 
-        next_high = current_period + interval
-        high_periods.append(next_high)
+    # 2〜6ターンの間隔を各1回使用
+    for interval in intervals:
+        current_period += interval
+        high_periods.append(current_period)
 
-        if next_high > NUM_PERIODS:
-            break
+    # 最終通常公開は21ターン目
+    assert current_period == NUM_PERIODS - 1
 
-        current_period = next_high
+    return high_periods
 
-    return [
-        period
-        for period in high_periods
-        if period != NUM_PERIODS
-    ]
 
 def plot_wealth_distribution(wealths, my_index):
 
@@ -1248,12 +1241,15 @@ if st.session_state.screen == "decision":
 
     st.session_state.visibility_condition = visibility_condition
 
+    
+    # 判断時点ですでに公開済みの情報
     past_highs = [
         high_period
         for high_period in high_periods
-        if high_period <= period
+        if high_period < period
     ]
 
+    # 判断後に行われる次の公開
     future_highs = [
         high_period
         for high_period in high_periods
@@ -1264,15 +1260,14 @@ if st.session_state.screen == "decision":
         last_high = max(past_highs)
         time_since_high = period - last_high
     else:
-        last_high = None
         time_since_high = None
 
-    next_high = min(future_highs)
-
-    if next_high <= NUM_PERIODS:
+    if future_highs:
+        next_high = min(future_highs)
         time_to_high = next_high - period
     else:
         time_to_high = None
+
 
     # 判断前の8人の順位
     ranks_before = [
