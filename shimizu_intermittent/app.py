@@ -102,92 +102,67 @@ def generate_high_periods():
 
     return high_periods
 
-
 def plot_wealth_distribution(wealths, my_index):
+    import numpy as np
 
     my_wealth = wealths[my_index]
+    values = np.asarray(wealths, dtype=float)
 
-    other_wealths = [
-        wealth
-        for i, wealth in enumerate(wealths)
-        if i != my_index
-    ]
+    min_wealth = float(values.min())
+    max_wealth = float(values.max())
+    bin_width = 5.0
 
-    wealth_counts = Counter(other_wealths)
-
+    # 著者提供のHighchartsと同様、全員を匿名で集計
     fig, ax = plt.subplots(figsize=(7, 5), dpi=100)
 
-    bar_width = 4
+    if max_wealth > min_wealth:
+        # 最小値を起点とする幅5の階級
+        # 最大値がちょうど階級境界なら直前の階級に含める
+        n_bins = max(
+            1,
+            int(np.ceil((max_wealth - min_wealth) / bin_width))
+        )
 
-    # 他の参加者
-    ax.bar(
-        [x - bar_width / 2 for x in wealth_counts.keys()],
-        wealth_counts.values(),
-        width=bar_width,
-        color="tab:blue"
+        edges = min_wealth + np.arange(n_bins + 1) * bin_width
+
+        counts, _ = np.histogram(values, bins=edges)
+
+        ax.bar(
+            edges[:-1],
+            counts,
+            width=bin_width,
+            align="edge",
+            color="#058DC7",
+            edgecolor="none"
+        )
+
+        ax.set_xlim(min_wealth, max_wealth)
+
+    else:
+        # 原著では全員同額の場合、棒を表示しない
+        ax.set_xlim(min_wealth - 5, max_wealth + 5)
+
+    ax.set_title(
+        "現在の総保有資産",
+        fontsize=18,
+        fontweight="normal"
     )
+    ax.set_xlabel("総保有資産", fontsize=14)
+    ax.set_ylabel("人数", fontsize=14)
 
-    # あなた
-    ax.bar(
-        my_wealth + bar_width / 2,
-        1,
-        width=bar_width,
-        color="tab:orange"
+    ax.yaxis.set_major_locator(
+        plt.MaxNLocator(integer=True)
     )
+    ax.set_ylim(bottom=0)
 
-    ax.set_xlabel("総資産")
-    ax.set_ylabel("人数")
-    ax.set_title("現在の総資産分布")
+    if max_wealth > min_wealth:
+        from matplotlib.ticker import MultipleLocator
+        ax.xaxis.set_major_locator(MultipleLocator(10))
 
-    ax.set_yticks([0, 2, 4, 6, 8])
-    ax.set_ylim(0, 8)
-
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-
-    ax.grid(
-        axis="y",
-        alpha=0.2
-    )
-
+    ax.grid(axis="y", alpha=0.15)
     ax.set_axisbelow(True)
 
-    ax.tick_params(
-        axis="both",
-        length=0
-    )
-
-    legend_elements = [
-        Line2D(
-            [0], [0],
-            marker="o",
-            linestyle="None",
-            markersize=5,
-            markerfacecolor="tab:blue",
-            markeredgecolor="tab:blue",
-            label="他の参加者"
-        ),
-        Line2D(
-            [0], [0],
-            marker="o",
-            linestyle="None",
-            markersize=5,
-            markerfacecolor="tab:orange",
-            markeredgecolor="tab:orange",
-            label="あなた"
-        )
-    ]
-
-    ax.legend(
-        handles=legend_elements,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.15),
-        ncol=2,
-        frameon=False,
-        fontsize=8
-    )
-
-    st.pyplot(fig, width=700)
+    st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
 def show_example_decision():
@@ -221,7 +196,6 @@ def show_example_decision():
                 use_container_width=True,
                 key="example_no_invest"
             )
-
 
 def show_example_wealth_distribution():
     st.caption("【説明用の画面例】架空の資産データです")
