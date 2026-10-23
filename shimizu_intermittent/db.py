@@ -12,8 +12,16 @@ from config import (
 
 DB_NAME = "experiment_room.db"
 
+def connect_db():
+    # Separate connection per operation; WAL allows concurrent readers.
+    conn = sqlite3.connect(DB_NAME, timeout=15)
+    conn.execute("PRAGMA busy_timeout = 15000")
+    return conn
+
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
+    conn.execute('PRAGMA journal_mode=WAL')
     c = conn.cursor()
 
     # 実験全体の進行状態
@@ -149,7 +157,7 @@ def init_db():
     conn.close()
 
 def register_player(player_id, initial_wealth):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # すでに登録済みなら、そのPlayer番号を返す
@@ -210,7 +218,7 @@ def register_player(player_id, initial_wealth):
     return player_number
 
 def get_player(player_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -254,7 +262,7 @@ def get_player(player_id):
     }
 
 def get_all_players():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -293,7 +301,7 @@ def get_all_players():
     return players
 
 def get_room_state():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -338,7 +346,7 @@ def get_room_state():
 
 
 def set_room_started(high_periods):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -361,7 +369,7 @@ def set_room_started(high_periods):
 
 
 def reset_room():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # 参加者を全員削除
@@ -395,7 +403,7 @@ def reset_room():
     conn.close()
 
 def submit_choice(player_id, choice, response_time):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -418,7 +426,7 @@ def submit_choice(player_id, choice, response_time):
     conn.close()
 
 def finalize_period(success_capacity, return_multiplier):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # Decisionフェーズ以外では結果を確定しない
@@ -656,7 +664,7 @@ def finalize_period(success_capacity, return_multiplier):
     conn.close()
 
 def advance_to_next_period():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # 次のターンへ進める
@@ -691,7 +699,7 @@ def advance_to_next_period():
     conn.close()
 
 def start_next_game(initial_wealth, high_periods):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # 実験全体を次のゲームへ
@@ -733,7 +741,7 @@ def start_next_game(initial_wealth, high_periods):
     conn.close()
 
 def end_experiment():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -766,7 +774,7 @@ def create_period_log(
     last_published_gap,
     group_wealths_before
 ):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -819,7 +827,7 @@ def update_period_log_choice(
     choice,
     response_time
 ):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -846,7 +854,7 @@ def update_period_log_choice(
     conn.close()
 
 def get_period_log(game, player_id, period):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
@@ -875,7 +883,7 @@ def get_period_log(game, player_id, period):
     return dict(row)
 
 def get_period_logs():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
@@ -893,7 +901,7 @@ def get_period_logs():
     return [dict(row) for row in rows]
 
 def confirm_result(player_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute(
@@ -916,7 +924,7 @@ def confirm_result(player_id):
     conn.close()
 
 def start_explanation():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -932,7 +940,7 @@ def start_explanation():
 
 
 def confirm_explanation(player_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -951,7 +959,7 @@ def confirm_explanation(player_id):
 
 
 def get_explanation_confirmed_count():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -966,7 +974,7 @@ def get_explanation_confirmed_count():
     return count
 
 def start_practice():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -992,7 +1000,7 @@ def submit_practice_choice(player_id, choice, response_time):
     if choice not in ("Invest", "Not Invest"):
         return
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -1016,7 +1024,7 @@ def submit_practice_choice(player_id, choice, response_time):
     conn.close()
 
 def finalize_practice(success_capacity, return_multiplier):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -1039,7 +1047,7 @@ def finalize_practice(success_capacity, return_multiplier):
     finalize_period(success_capacity, return_multiplier)
 
 def finish_practice():
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     c.execute("""
@@ -1063,7 +1071,7 @@ def finish_practice():
     conn.close()
 
 def start_main_after_practice(initial_wealth, high_periods):
-    conn = sqlite3.connect(DB_NAME)
+    conn = connect_db()
     c = conn.cursor()
 
     # 練習終了後の待機状態であることを確認
