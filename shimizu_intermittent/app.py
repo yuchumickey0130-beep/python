@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import time
 import db
-from collections import Counter
-from matplotlib.lines import Line2D
 
 from config import (
     NUM_PERIODS,
@@ -28,7 +26,13 @@ required_players = (
     else NUM_PLAYERS
 )
 
-db.init_db()
+@st.cache_resource
+def initialize_experiment_db():
+    # Schema initialization must not run on every participant rerun.
+    db.init_db()
+    return True
+
+initialize_experiment_db()
 
 plt.rcParams["font.family"] = "Yu Gothic"
 
@@ -221,7 +225,7 @@ def show_example_wealth_distribution():
         )
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=4)
 def wait_for_phase_change(current_phase, current_game, current_period):
 
     room_now = db.get_room_state()
@@ -234,7 +238,7 @@ def wait_for_phase_change(current_phase, current_game, current_period):
         st.rerun(scope="app")
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=4)
 def watch_admin_state():
 
     room_now = db.get_room_state()
@@ -265,7 +269,7 @@ def watch_admin_state():
         st.session_state.admin_state_key = current_key
         st.rerun()
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=4)
 def watch_room_reset():
 
     if st.session_state.my_id is None:
@@ -351,8 +355,6 @@ if not st.session_state.is_admin:
         st.session_state.decision_start_time = None
 
         st.rerun()
-
-watch_room_reset()
 
 # DBのフェーズに参加者画面を同期
 if not st.session_state.is_admin:
@@ -894,7 +896,7 @@ if not room["is_started"]:
                 f"現在の参加者：{len(players)} / {required_players}"
             )
     
-    @st.fragment(run_every=2)
+    @st.fragment(run_every=4)
     def watch_prestart_state(
         displayed_phase,
         displayed_started,
@@ -1490,6 +1492,10 @@ elif st.session_state.screen == "result":
         st.session_state.my_id,
         period
     )
+
+    if period_log is None:
+        st.error("このターンの結果ログがまだ取得できません。画面を再読み込みしてください。")
+        st.stop()
 
     wealth_before = period_log["wealth_before"]
     investment = period_log["endowment"]
