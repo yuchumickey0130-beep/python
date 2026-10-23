@@ -267,18 +267,6 @@ def watch_admin_state():
 
     elif st.session_state.admin_state_key != current_key:
         st.session_state.admin_state_key = current_key
-        st.rerun()
-
-@st.fragment(run_every=4)
-def watch_room_reset():
-
-    if st.session_state.my_id is None:
-        return
-
-    if st.session_state.is_admin:
-        return
-
-    if db.get_player(st.session_state.my_id) is None:
         st.rerun(scope="app")
 
 if "screen" not in st.session_state:
@@ -1494,7 +1482,7 @@ elif st.session_state.screen == "result":
     )
 
     if period_log is None:
-        st.error("このターンの結果ログがまだ取得できません。画面を再読み込みしてください。")
+        st.error("結果ログが見つかりません。管理者に連絡してください。")
         st.stop()
 
     wealth_before = period_log["wealth_before"]
