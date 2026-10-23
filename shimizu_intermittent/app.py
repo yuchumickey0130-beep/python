@@ -26,6 +26,11 @@ required_players = (
     else NUM_PLAYERS
 )
 
+st.set_page_config(
+    page_title="反復投資実験",
+    layout="centered"
+)
+
 @st.cache_resource
 def initialize_experiment_db():
     # Schema initialization must not run on every participant rerun.
@@ -35,11 +40,6 @@ def initialize_experiment_db():
 initialize_experiment_db()
 
 plt.rcParams["font.family"] = "Yu Gothic"
-
-st.set_page_config(
-    page_title="反復投資実験",
-    layout="centered"
-)
 
 st.markdown(
     """
@@ -1410,19 +1410,17 @@ if st.session_state.screen == "decision":
             - st.session_state.decision_start_time
         )
 
-        db.submit_choice(
-            st.session_state.my_id,
-            player_choice,
-            response_time
-        )
-
-        db.update_period_log_choice(
-            game=room["game"],
-            player_id=st.session_state.my_id,
-            period=period,
-            choice=player_choice,
-            response_time=response_time
-        )
+        try:
+            db.submit_choice_with_log(
+                player_id=st.session_state.my_id,
+                game=room["game"],
+                period=period,
+                choice=player_choice,
+                response_time=response_time
+            )
+        except ValueError:
+            st.warning("ターンの状態が変わりました。画面を更新して確認してください。")
+            st.stop()
 
         st.session_state.decision_start_time = None
         st.session_state.screen = "waiting_submission"
