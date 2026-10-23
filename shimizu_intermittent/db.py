@@ -425,6 +425,44 @@ def submit_choice(player_id, choice, response_time):
     conn.commit()
     conn.close()
 
+def submit_choice_with_log(player_id, game, period, choice, response_time):
+    """Commit participant choice and its research log in one transaction."""
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        room = conn.execute(
+            "SELECT game, period, phase FROM room_state WHERE id = 1"
+        ).fetchone()
+        if (room is None or room[0] != game or room[1] != period
+                or room[2] != "decision"):
+            raise ValueError("The decision period has already changed.")
+        cursor = conn.execute(
+            """
+            UPDATE players
+            SET current_choice = ?, response_time = ?, has_submitted = 1
+            WHERE player_id = ? AND has_submitted = 0
+            """,
+            (choice, response_time, player_id)
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("This player has already submitted or is missing.")
+        cursor = conn.execute(
+            """
+            UPDATE period_logs SET choice = ?, response_time = ?
+            WHERE game = ? AND player_id = ? AND period = ?
+            """,
+            (choice, response_time, game, player_id, period)
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("The period log was not initialized.")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def finalize_period(success_capacity, return_multiplier):
     conn = connect_db()
     c = conn.cursor()
