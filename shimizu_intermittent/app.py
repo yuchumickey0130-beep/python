@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+import hmac
 import random
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -277,6 +279,15 @@ if "decision_start_time" not in st.session_state:
 
 render_brand_badge()
 
+def get_admin_password():
+    # Prefer Streamlit secrets on hosted deployments; allow environment variables locally.
+    try:
+        password = st.secrets.get("ADMIN_PASSWORD")
+    except (FileNotFoundError, KeyError):
+        password = None
+    return str(password) if password else os.environ.get("ADMIN_PASSWORD", "")
+
+
 if "my_id" not in st.session_state:
     st.session_state.my_id = None
 
@@ -303,8 +314,7 @@ if st.session_state.my_id is None:
             st.error("参加者IDを入力してください。")
 
         elif player_id.lower() == "admin":
-            st.session_state.my_id = "admin"
-            st.session_state.is_admin = True
+            st.session_state.admin_login_pending = True
             st.rerun()
 
         else:
@@ -323,6 +333,25 @@ if st.session_state.my_id is None:
                 st.session_state.player_number = player_number
                 st.session_state.is_admin = False
                 st.rerun()
+
+    if st.session_state.get("admin_login_pending", False):
+        st.divider()
+        st.subheader("管理者認証")
+        admin_password = st.text_input("管理者パスワード", type="password", key="admin_password_input")
+        if st.button("管理者としてログイン", type="primary"):
+            expected_password = get_admin_password()
+            if not expected_password:
+                st.error("管理者パスワードが設定されていません。ADMIN_PASSWORD を設定してください。")
+            elif hmac.compare_digest(admin_password, expected_password):
+                st.session_state.my_id = "admin"
+                st.session_state.is_admin = True
+                st.session_state.admin_login_pending = False
+                st.rerun()
+            else:
+                st.error("管理者パスワードが違います。")
+        if st.button("管理者ログインをキャンセル"):
+            st.session_state.admin_login_pending = False
+            st.rerun()
 
     st.stop()
 
