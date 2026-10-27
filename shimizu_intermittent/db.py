@@ -59,6 +59,11 @@ def init_db():
         )
     """)
 
+    c.execute("PRAGMA table_info(room_state)")
+    room_columns = [row[1] for row in c.fetchall()]
+    if "num_periods" not in room_columns:
+        c.execute("ALTER TABLE room_state ADD COLUMN num_periods INTEGER NOT NULL DEFAULT 22")
+
     # 既存DBにも結果確認用の列を追加
     c.execute("PRAGMA table_info(players)")
     columns = [
@@ -340,7 +345,8 @@ def get_room_state():
             num_invested,
             num_success,
             num_failed,
-            num_not_invested
+            num_not_invested,
+            num_periods
         FROM room_state
         WHERE id = 1
     """)
@@ -364,11 +370,12 @@ def get_room_state():
         "num_invested": row[8],
         "num_success": row[9],
         "num_failed": row[10],
-        "num_not_invested": row[11]
+        "num_not_invested": row[11],
+        "num_periods": row[12]
     }
 
 
-def set_room_started(high_periods):
+def set_room_started(high_periods, num_periods):
     conn = connect_db()
     c = conn.cursor()
 
@@ -381,10 +388,11 @@ def set_room_started(high_periods):
             period = 1,
             phase = 'decision',
             experiment_over = 0,
-            high_periods = ?
+            high_periods = ?,
+            num_periods = ?
         WHERE id = 1
         """,
-        (json.dumps(high_periods),)
+        (json.dumps(high_periods), num_periods)
     )
 
     conn.commit()
@@ -411,7 +419,8 @@ def reset_room():
             phase = 'decision',
             is_started = 0,
             experiment_over = 0,
-            high_periods = '[]',
+            high_periods = '{}',
+            num_periods = 22,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -621,28 +630,25 @@ def finalize_period(success_capacity, return_multiplier):
     # 最終ターンのみ、専用の最終結果画面へ移行
     if is_practice:
         next_phase = "practice_result"
-    elif period == EFFECTIVE_NUM_PERIODS:
+    elif period == (TEST_NUM_PERIODS if TEST_MODE else get_num_periods_for_cursor(c)):
         next_phase = "final_result"
     else:
         next_phase = "result"
     
 
     # HIGHターンなら、このターン終了時の資産情報を公開
-    if not is_practice and period in high_periods and period != EFFECTIVE_NUM_PERIODS:
+    if not is_practice and period != (TEST_NUM_PERIODS if TEST_MODE else get_num_periods_for_cursor(c)):
 
-        c.execute(
-            """
-            UPDATE room_state
-            SET
-                published_period = ?,
-                published_wealths = ?
-            WHERE id = 1
-            """,
-            (
-                period,
-                json.dumps(group_wealths_after)
-            )
-        )
+        c.execute("SELECT published_period, published_wealths FROM room_state WHERE id = 1")
+        pub_row = c.fetchone()
+        pub_periods = json.loads(pub_row[0]) if pub_row[0] and pub_row[0].startswith("{") else {}
+        pub_wealths = json.loads(pub_row[1]) if pub_row[1] and pub_row[1].startswith("{") else {}
+        for participant_id, schedule in high_periods.items():
+            if period in schedule:
+                pub_periods[participant_id] = period
+                pub_wealths[participant_id] = group_wealths_after
+        c.execute("UPDATE room_state SET published_period = ?, published_wealths = ? WHERE id = 1",
+                  (json.dumps(pub_periods), json.dumps(pub_wealths)))
 
     # 更新後の順位
     ranks_after = [
@@ -737,6 +743,11 @@ def finalize_period(success_capacity, return_multiplier):
     conn.commit()
     conn.close()
 
+def get_num_periods_for_cursor(c):
+    c.execute("SELECT num_periods FROM room_state WHERE id = 1")
+    return c.fetchone()[0]
+
+
 def advance_to_next_period():
     conn = connect_db()
     c = conn.cursor()
@@ -799,7 +810,7 @@ def mark_game_ready(player_id):
     conn.close()
 
 
-def start_next_game(initial_wealth, high_periods):
+def start_next_game(initial_wealth, high_periods, num_periods):
     conn = connect_db()
     c = conn.cursor()
 
@@ -823,6 +834,7 @@ def start_next_game(initial_wealth, high_periods):
             period = 1,
             phase = 'decision',
             high_periods = ?,
+            num_periods = ?,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -831,7 +843,7 @@ def start_next_game(initial_wealth, high_periods):
             num_not_invested = NULL
         WHERE id = 1
         """,
-        (json.dumps(high_periods),)
+        (json.dumps(high_periods), num_periods)
     )
 
     # 全参加者を初期状態へ戻す
@@ -1191,7 +1203,7 @@ def finish_practice():
     conn.commit()
     conn.close()
 
-def start_main_after_practice(initial_wealth, high_periods):
+def start_main_after_practice(initial_wealth, high_periods, num_periods):
     conn = connect_db()
     c = conn.cursor()
 
@@ -1231,6 +1243,7 @@ def start_main_after_practice(initial_wealth, high_periods):
             is_started = 1,
             experiment_over = 0,
             high_periods = ?,
+            num_periods = ?,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -1238,7 +1251,7 @@ def start_main_after_practice(initial_wealth, high_periods):
             num_failed = NULL,
             num_not_invested = NULL
         WHERE id = 1
-    """, (json.dumps(high_periods),))
+    """, (json.dumps(high_periods), num_periods))
 
     conn.commit()
     conn.close()
