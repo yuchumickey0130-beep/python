@@ -259,7 +259,8 @@ def watch_admin_state():
         room_now["period"],
         room_now["phase"],
         submitted_count_now,
-        confirmed_count_now
+        confirmed_count_now,
+        sum(player["game_ready"] for player in players_now)
     )
 
     if "admin_state_key" not in st.session_state:
@@ -358,6 +359,9 @@ if not st.session_state.is_admin:
 
     if room["phase"] == "finished":
         st.session_state.screen = "final_end"
+
+    elif room["phase"] == "game_break":
+        st.session_state.screen = "game_break"
 
     elif room["phase"] == "final_result":
         st.session_state.screen = "final_result"
@@ -1111,7 +1115,7 @@ if room["is_started"] and st.session_state.is_admin:
                 st.rerun()
 
 
-    elif room["phase"] in ("result", "final_result"):
+    elif room["phase"] in ("result", "final_result", "game_break"):
 
         confirmed_count = sum(
             player["result_confirmed"]
@@ -1130,7 +1134,21 @@ if room["is_started"] and st.session_state.is_admin:
         st.success("結果を確定しました。")
         st.write("参加者は結果画面を確認中です。")
 
-        if room["period"] < NUM_PERIODS:
+        if room["phase"] == "game_break":
+            ready_count = sum(p["game_ready"] for p in players)
+            st.write(f"次のゲームの準備完了：{ready_count}/{required_players} 人")
+            if ready_count == required_players and len(players) == required_players:
+                st.success("全員の準備ができました。")
+                if st.button("次のゲームを開始", type="primary"):
+                    db.start_next_game(INITIAL_WEALTH, generate_high_periods())
+                    st.rerun()
+            else:
+                st.info("全員の準備ができるまで開始できません。")
+            if st.button("実験を終了"):
+                db.end_experiment()
+                st.rerun()
+
+        elif room["period"] < NUM_PERIODS:
 
             if st.button(
                 "次のターンへ",
@@ -1145,28 +1163,15 @@ if room["is_started"] and st.session_state.is_admin:
                 f"ゲーム {room['game']} の全ターンが終了しました。"
             )
 
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button(
-                    "次のゲームを開始",
-                    type="primary"
-                ):
-                    new_high_periods = generate_high_periods()
-
-                    db.start_next_game(
-                        INITIAL_WEALTH,
-                        new_high_periods
-                    )
-
+            if confirmed_count == required_players and len(players) == required_players:
+                if st.button("休憩・準備確認へ進む", type="primary"):
+                    db.enter_game_break()
                     st.rerun()
-
-            with col2:
-                if st.button("実験を終了"):
-
-                    db.end_experiment()
-
-                    st.rerun()
+            else:
+                st.info("全員が結果を確認するまで休憩画面には進めません。")
+            if st.button("実験を終了"):
+                db.end_experiment()
+                st.rerun()
 
 # 管理者はここでDBの変化を監視
 if st.session_state.is_admin:
@@ -1730,6 +1735,21 @@ elif st.session_state.screen == "final_result":
         room["period"]
     )
 
+    st.stop()
+
+elif st.session_state.screen == "game_break":
+    room = db.get_room_state()
+    player = db.get_player(st.session_state.my_id)
+    st.subheader(f"ゲーム {room['game']} が終了しました")
+    st.write("休憩が必要な方は、ここで休憩してください。")
+    st.write("次のゲームの準備ができたら「準備できました」を押してください。")
+    if player["game_ready"]:
+        st.success("準備完了を受け付けました。")
+        st.write("全員の準備ができた後、実験者が次のゲームを開始します。")
+    elif st.button("準備できました", type="primary"):
+        db.mark_game_ready(st.session_state.my_id)
+        st.rerun()
+    wait_for_phase_change("game_break", room["game"], room["period"])
     st.stop()
 
 elif st.session_state.screen == "final_end":
