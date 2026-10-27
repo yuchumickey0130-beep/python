@@ -16,6 +16,8 @@ from config import (
     MAX_HIGH_INTERVAL,
     TEST_MODE,
     TEST_NUM_PLAYERS,
+    TEST_NUM_PERIODS,
+    EXPLANATION_MODE,
     PRACTICE_MODE,
     ALLOW_ADMIN_RESET,
 )
@@ -25,6 +27,8 @@ required_players = (
     if TEST_MODE
     else NUM_PLAYERS
 )
+
+effective_num_periods = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
 
 st.set_page_config(
     page_title="反復投資実験",
@@ -91,6 +95,10 @@ def generate_high_periods():
     ))
 
     random.shuffle(intervals)
+
+    # Short tests cannot follow the normal 22-turn publication schedule.
+    if effective_num_periods != NUM_PERIODS:
+        return [1] if effective_num_periods > 1 else []
 
     # 1ターン目の終了時に初回公開
     high_periods = [1]
@@ -173,7 +181,7 @@ def show_example_decision():
     st.caption("【説明用の画面例】実際の操作はできません")
 
     with st.container(border=True):
-        st.subheader(f"反復投資実験（ターン3/{NUM_PERIODS}）")
+        st.subheader(f"反復投資実験（ターン3/{effective_num_periods}）")
         st.write("あなたは Player 1 です。")
 
         st.write("現在の総資産：500 ポイント")
@@ -399,9 +407,18 @@ if not room["is_started"]:
 
             if len(players) == required_players:
 
-                if st.button("説明開始", type="primary"):
-                    db.start_explanation()
-                    st.rerun()
+                if EXPLANATION_MODE:
+                    if st.button("説明開始", type="primary"):
+                        db.start_explanation()
+                        st.rerun()
+                elif PRACTICE_MODE:
+                    if st.button("練習を開始（説明を省略）", type="primary"):
+                        db.start_practice()
+                        st.rerun()
+                else:
+                    if st.button("本番を開始（説明・練習を省略）", type="primary"):
+                        db.set_room_started(generate_high_periods())
+                        st.rerun()
 
             else:
                 st.info(
@@ -669,7 +686,7 @@ if not room["is_started"]:
             st.markdown("""
     1. 説明を読み終えたら「説明を確認しました」を押してください。
     2. 質問がある場合は挙手し、実験担当者に確認してください。
-    3. 全員の確認後、1ターンの練習を行います。
+    3. 練習を実施する場合は、全員の確認後に1ターンの練習を行います。
     4. 練習終了後、本番の実験を開始します。
     5. 本番では初期資産500ポイントから開始し、複数ターンの投資判断を繰り返します。
     """)
@@ -1148,7 +1165,7 @@ if room["is_started"] and st.session_state.is_admin:
                 db.end_experiment()
                 st.rerun()
 
-        elif room["period"] < NUM_PERIODS:
+        elif room["period"] < effective_num_periods:
 
             if st.button(
                 "次のターンへ",
@@ -1312,7 +1329,7 @@ if st.session_state.screen == "decision":
         group_wealths_before=wealths
     )
 
-    st.subheader(f"反復投資実験 （ターン{period}/{NUM_PERIODS}）")
+    st.subheader(f"反復投資実験 （ターン{period}/{effective_num_periods}）")
 
     st.write(
         f"あなたは Player {st.session_state.player_number} です。"
@@ -1332,7 +1349,7 @@ if st.session_state.screen == "decision":
 
     st.divider()
 
-    turns_to_end = NUM_PERIODS - period
+    turns_to_end = effective_num_periods - period
 
     # 資産情報の公開
     if published_wealths is None:
@@ -1445,7 +1462,7 @@ elif st.session_state.screen == "waiting_submission":
         st.rerun()
 
     st.subheader(
-        f"ターン {room['period']}/{NUM_PERIODS}"
+        f"ターン {room['period']}/{effective_num_periods}"
     )
 
     st.write(
@@ -1506,7 +1523,7 @@ elif st.session_state.screen == "result":
     acquired_assets = wealth_after - wealth_before
 
     st.subheader(
-        f"結果 （ターン{period}/{NUM_PERIODS}）"
+        f"結果 （ターン{period}/{effective_num_periods}）"
     )
 
     st.write(
