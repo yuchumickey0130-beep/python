@@ -361,10 +361,10 @@ def get_room_state():
         "is_started": bool(row[3]),
         "experiment_over": bool(row[4]),
         "high_periods": json.loads(row[5]),
-        "published_period": row[6],
+        "published_period": (json.loads(row[6]) if isinstance(row[6], str) and row[6].startswith("{") else None),
         "published_wealths": (
             json.loads(row[7])
-            if row[7] is not None
+            if isinstance(row[7], str) and row[7].startswith("{")
             else None
         ),
         "num_invested": row[8],
