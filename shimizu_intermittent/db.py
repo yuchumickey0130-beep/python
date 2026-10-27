@@ -8,7 +8,10 @@ from config import (
     NUM_PLAYERS,
     TEST_MODE,
     TEST_NUM_PLAYERS,
+    TEST_NUM_PERIODS,
 )
+
+EFFECTIVE_NUM_PERIODS = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
 
 DB_NAME = "experiment_room.db"
 
@@ -598,14 +601,14 @@ def finalize_period(success_capacity, return_multiplier):
     # 最終ターンのみ、専用の最終結果画面へ移行
     if is_practice:
         next_phase = "practice_result"
-    elif period == NUM_PERIODS:
+    elif period == EFFECTIVE_NUM_PERIODS:
         next_phase = "final_result"
     else:
         next_phase = "result"
     
 
     # HIGHターンなら、このターン終了時の資産情報を公開
-    if not is_practice and period in high_periods and period != NUM_PERIODS:
+    if not is_practice and period in high_periods and period != EFFECTIVE_NUM_PERIODS:
 
         c.execute(
             """
@@ -1082,14 +1085,11 @@ def start_practice():
         SET phase = 'practice_decision'
         WHERE id = 1
           AND is_started = 0
-          AND phase = 'explanation'
           AND (
-              SELECT COUNT(*)
-              FROM players
-              WHERE explanation_confirmed = 1
-          ) = (
-              SELECT COUNT(*)
-              FROM players
+              phase = 'decision'
+              OR (phase = 'explanation' AND (
+                  SELECT COUNT(*) FROM players WHERE explanation_confirmed = 1
+              ) = (SELECT COUNT(*) FROM players))
           )
     """)
 
