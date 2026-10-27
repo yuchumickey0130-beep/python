@@ -72,6 +72,9 @@ def init_db():
             ADD COLUMN result_confirmed INTEGER NOT NULL DEFAULT 0
         """)
 
+    if "game_start_ack" not in columns:
+        c.execute("ALTER TABLE players ADD COLUMN game_start_ack INTEGER NOT NULL DEFAULT 0")
+
     if "game_ready" not in columns:
         c.execute("ALTER TABLE players ADD COLUMN game_ready INTEGER NOT NULL DEFAULT 0")
 
@@ -245,7 +248,8 @@ def get_player(player_id):
             success,
             result_confirmed,
             explanation_confirmed,
-            game_ready
+            game_ready,
+            game_start_ack
         FROM players
         WHERE player_id = ?
         """,
@@ -272,7 +276,8 @@ def get_player(player_id):
         ),
         "result_confirmed": bool(row[7]),
         "explanation_confirmed": bool(row[8]),
-        "game_ready": bool(row[9])
+        "game_ready": bool(row[9]),
+        "game_start_ack": bool(row[10])
     }
 
 def get_all_players():
@@ -290,7 +295,8 @@ def get_all_players():
             has_submitted,
             result_confirmed,
             explanation_confirmed,
-            game_ready
+            game_ready,
+            game_start_ack
         FROM players
         ORDER BY player_number
         """
@@ -311,7 +317,8 @@ def get_all_players():
             "has_submitted": bool(row[5]),
             "result_confirmed": bool(row[6]),
             "explanation_confirmed": bool(row[7]),
-            "game_ready": bool(row[8])
+            "game_ready": bool(row[8]),
+            "game_start_ack": bool(row[9])
         })
 
     return players
@@ -417,6 +424,19 @@ def reset_room():
 
     conn.commit()
     conn.close()
+
+def acknowledge_game_start(player_id):
+    conn = connect_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE players SET game_start_ack = 1
+        WHERE player_id = ? AND game_start_ack = 0
+          AND EXISTS (SELECT 1 FROM room_state WHERE id = 1
+                      AND phase = 'decision' AND period = 1 AND is_started = 1)
+    """, (player_id,))
+    conn.commit()
+    conn.close()
+
 
 def submit_choice(player_id, choice, response_time):
     conn = connect_db()
@@ -825,7 +845,8 @@ def start_next_game(initial_wealth, high_periods):
             has_submitted = 0,
             success = NULL,
             result_confirmed = 0,
-            game_ready = 0
+            game_ready = 0,
+            game_start_ack = 0
         """,
         (initial_wealth,)
     )
@@ -1196,7 +1217,8 @@ def start_main_after_practice(initial_wealth, high_periods):
             response_time = NULL,
             has_submitted = 0,
             success = NULL,
-            result_confirmed = 0
+            result_confirmed = 0,
+            game_start_ack = 0
     """, (initial_wealth,))
 
     # 本番用の実験状態を初期化
