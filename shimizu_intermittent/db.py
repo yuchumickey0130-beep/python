@@ -69,6 +69,9 @@ def init_db():
             ADD COLUMN result_confirmed INTEGER NOT NULL DEFAULT 0
         """)
 
+    if "game_ready" not in columns:
+        c.execute("ALTER TABLE players ADD COLUMN game_ready INTEGER NOT NULL DEFAULT 0")
+
     if "explanation_confirmed" not in columns:
         c.execute("""
             ALTER TABLE players
@@ -238,7 +241,8 @@ def get_player(player_id):
             has_submitted,
             success,
             result_confirmed,
-            explanation_confirmed
+            explanation_confirmed,
+            game_ready
         FROM players
         WHERE player_id = ?
         """,
@@ -264,7 +268,8 @@ def get_player(player_id):
             else None
         ),
         "result_confirmed": bool(row[7]),
-        "explanation_confirmed": bool(row[8])
+        "explanation_confirmed": bool(row[8]),
+        "game_ready": bool(row[9])
     }
 
 def get_all_players():
@@ -281,7 +286,8 @@ def get_all_players():
             response_time,
             has_submitted,
             result_confirmed,
-            explanation_confirmed
+            explanation_confirmed,
+            game_ready
         FROM players
         ORDER BY player_number
         """
@@ -301,7 +307,8 @@ def get_all_players():
             "response_time": row[4],
             "has_submitted": bool(row[5]),
             "result_confirmed": bool(row[6]),
-            "explanation_confirmed": bool(row[7])
+            "explanation_confirmed": bool(row[7]),
+            "game_ready": bool(row[8])
         })
 
     return players
@@ -742,9 +749,47 @@ def advance_to_next_period():
     conn.commit()
     conn.close()
 
+def enter_game_break():
+    """Show rest/readiness only after every participant confirms final results."""
+    conn = connect_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE room_state SET phase = 'game_break'
+        WHERE id = 1 AND phase = 'final_result'
+          AND (SELECT COUNT(*) FROM players WHERE result_confirmed = 1)
+              = (SELECT COUNT(*) FROM players)
+          AND (SELECT COUNT(*) FROM players) > 0
+    """)
+    conn.commit()
+    conn.close()
+
+
+def mark_game_ready(player_id):
+    conn = connect_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE players SET game_ready = 1
+        WHERE player_id = ? AND game_ready = 0
+          AND EXISTS (SELECT 1 FROM room_state WHERE id = 1 AND phase = 'game_break')
+    """, (player_id,))
+    conn.commit()
+    conn.close()
+
+
 def start_next_game(initial_wealth, high_periods):
     conn = connect_db()
     c = conn.cursor()
+
+    c.execute("""
+        SELECT phase,
+               (SELECT COUNT(*) FROM players),
+               (SELECT COUNT(*) FROM players WHERE game_ready = 1)
+        FROM room_state WHERE id = 1
+    """)
+    state = c.fetchone()
+    if state is None or state[0] != "game_break" or state[1] == 0 or state[1] != state[2]:
+        conn.close()
+        return False
 
     # 実験全体を次のゲームへ
     c.execute(
@@ -776,7 +821,8 @@ def start_next_game(initial_wealth, high_periods):
             response_time = NULL,
             has_submitted = 0,
             success = NULL,
-            result_confirmed = 0
+            result_confirmed = 0,
+            game_ready = 0
         """,
         (initial_wealth,)
     )
