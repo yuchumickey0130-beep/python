@@ -380,10 +380,13 @@ if not st.session_state.is_admin:
 
     elif room["phase"] == "decision":
 
-        if room["is_started"] and room["period"] == 1 and not player["game_start_ack"]:
-            st.session_state.screen = "game_start_gate"
-        elif player["has_submitted"]:
+        decision_key = (room["game"], room["period"])
+        if player["has_submitted"]:
             st.session_state.screen = "waiting_submission"
+        elif room["period"] == 1 and not player["game_start_ack"]:
+            st.session_state.screen = "game_start_gate"
+        elif st.session_state.get("decision_ack_key") != decision_key:
+            st.session_state.screen = "turn_start_gate"
         else:
             st.session_state.screen = "decision"
 
@@ -1215,6 +1218,17 @@ if st.session_state.screen == "game_start_gate":
     st.write("準備ができたら「OK」を押して投資判断を始めてください。")
     if st.button("OK・投資判断を開始", type="primary"):
         db.acknowledge_game_start(st.session_state.my_id)
+        st.session_state.decision_ack_key = (room["game"], room["period"])
+        st.session_state.decision_start_time = time.perf_counter()
+        st.rerun()
+    wait_for_phase_change("decision", room["game"], room["period"])
+    st.stop()
+
+if st.session_state.screen == "turn_start_gate":
+    st.subheader(f"ターン {room['period']} を開始します")
+    st.write("準備ができたら「OK」を押して投資判断を始めてください。")
+    if st.button("OK・投資判断を開始", type="primary", key=f"turn_start_{room['game']}_{room['period']}"):
+        st.session_state.decision_ack_key = (room["game"], room["period"])
         st.session_state.decision_start_time = time.perf_counter()
         st.rerun()
     wait_for_phase_change("decision", room["game"], room["period"])
