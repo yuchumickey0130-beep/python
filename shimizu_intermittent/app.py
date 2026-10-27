@@ -7,6 +7,7 @@ import db
 
 from config import (
     NUM_PERIODS,
+    GAME_PATTERN,
     NUM_PLAYERS,
     SUCCESS_CAPACITY,
     INITIAL_WEALTH,
@@ -28,7 +29,7 @@ required_players = (
     else NUM_PLAYERS
 )
 
-effective_num_periods = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
+initial_num_periods = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
 
 st.set_page_config(
     page_title="反復投資実験",
@@ -88,27 +89,27 @@ def render_brand_badge():
     )
 
 
-def generate_high_periods():
-    intervals = list(range(
-        MIN_HIGH_INTERVAL,
-        MAX_HIGH_INTERVAL + 1
-    ))
+def pattern_length(pattern):
+    if TEST_MODE:
+        return TEST_NUM_PERIODS
+    return {1: 22, 2: 16}[pattern]
 
-    random.shuffle(intervals)
 
-    # 1ターン目の終了時に初回公開
-    high_periods = [1]
-    current_period = 1
+def generate_high_periods(pattern):
+    """Independent random permutation for each registered participant."""
+    intervals = [2, 3, 4, 5, 6] if pattern == 1 else [2, 3, 4, 5]
+    schedule = {}
+    for participant in db.get_all_players():
+        shuffled = intervals.copy()
+        random.shuffle(shuffled)
+        current = 1
+        turns = [1]
+        for interval in shuffled:
+            current += interval
+            turns.append(current)
+        schedule[participant["player_id"]] = turns
+    return schedule
 
-    # 2〜6ターンの間隔を各1回使用
-    for interval in intervals:
-        current_period += interval
-        high_periods.append(current_period)
-
-    # 最終通常公開は21ターン目
-    assert current_period == NUM_PERIODS - 1
-
-    return high_periods
 
 def plot_wealth_distribution(wealths, my_index):
     import numpy as np
@@ -177,7 +178,7 @@ def show_example_decision():
     st.caption("【説明用の画面例】実際の操作はできません")
 
     with st.container(border=True):
-        st.subheader(f"反復投資実験（ターン3/{effective_num_periods}）")
+        st.subheader(f"反復投資実験（ターン3/{room["num_periods"]}）")
         st.write("あなたは Player 1 です。")
 
         st.write("現在の総資産：500 ポイント")
@@ -423,7 +424,7 @@ if not room["is_started"]:
                         st.rerun()
                 else:
                     if st.button("本番を開始（説明・練習を省略）", type="primary"):
-                        db.set_room_started(generate_high_periods())
+                        db.set_room_started(generate_high_periods(GAME_PATTERN), pattern_length(GAME_PATTERN))
                         st.rerun()
 
             else:
@@ -450,8 +451,8 @@ if not room["is_started"]:
 
                 else:
                     if st.button("本番を開始", type="primary"):
-                        high_periods = generate_high_periods()
-                        db.set_room_started(high_periods)
+                        high_periods = generate_high_periods(GAME_PATTERN)
+                        db.set_room_started(high_periods, pattern_length(GAME_PATTERN))
                         st.rerun()
 
             else:
@@ -533,11 +534,12 @@ if not room["is_started"]:
 
             if st.button("本番を開始", type="primary"):
 
-                high_periods = generate_high_periods()
+                high_periods = generate_high_periods(GAME_PATTERN)
 
                 db.start_main_after_practice(
                     INITIAL_WEALTH,
-                    high_periods
+                    high_periods,
+                    pattern_length(GAME_PATTERN)
                 )
 
                 st.rerun()
@@ -1172,10 +1174,14 @@ if room["is_started"] and st.session_state.is_admin:
         if room["phase"] == "game_break":
             ready_count = sum(p["game_ready"] for p in players)
             st.write(f"次のゲームの準備完了：{ready_count}/{required_players} 人")
+            next_pattern = st.selectbox("次のゲームのパターン", [1, 2],
+                                        index=0 if GAME_PATTERN == 1 else 1,
+                                        format_func=lambda x: "1：22ターン" if x == 1 else "2：16ターン",
+                                        key=f"next_pattern_{room['game']}")
             if ready_count == required_players and len(players) == required_players:
                 st.success("全員の準備ができました。")
                 if st.button("次のゲームを開始", type="primary"):
-                    db.start_next_game(INITIAL_WEALTH, generate_high_periods())
+                    db.start_next_game(INITIAL_WEALTH, generate_high_periods(next_pattern), pattern_length(next_pattern))
                     st.rerun()
             else:
                 st.info("全員の準備ができるまで開始できません。")
@@ -1183,7 +1189,7 @@ if room["is_started"] and st.session_state.is_admin:
                 db.end_experiment()
                 st.rerun()
 
-        elif room["period"] < effective_num_periods:
+        elif room["period"] < room["num_periods"]:
 
             if st.button(
                 "次のターンへ",
@@ -1238,10 +1244,9 @@ if st.session_state.screen == "decision":
 
     period = room["period"]
     wealth = player["wealth"]
-    high_periods = room["high_periods"]
-
-    published_period = room["published_period"]
-    published_wealths = room["published_wealths"]
+    high_periods = room["high_periods"].get(st.session_state.my_id, [])
+    published_period = room["published_period"].get(st.session_state.my_id) if isinstance(room["published_period"], dict) else None
+    published_wealths = room["published_wealths"].get(st.session_state.my_id) if isinstance(room["published_wealths"], dict) else None
 
     if st.session_state.decision_start_time is None:
         st.session_state.decision_start_time = time.perf_counter()
@@ -1368,7 +1373,7 @@ if st.session_state.screen == "decision":
         group_wealths_before=wealths
     )
 
-    st.subheader(f"反復投資実験 （ターン{period}/{effective_num_periods}）")
+    st.subheader(f"反復投資実験 （ターン{period}/{room["num_periods"]}）")
 
     st.write(
         f"あなたは Player {st.session_state.player_number} です。"
@@ -1388,7 +1393,7 @@ if st.session_state.screen == "decision":
 
     st.divider()
 
-    turns_to_end = effective_num_periods - period
+    turns_to_end = room["num_periods"] - period
 
     # 資産情報の公開
     if published_wealths is None:
@@ -1501,7 +1506,7 @@ elif st.session_state.screen == "waiting_submission":
         st.rerun()
 
     st.subheader(
-        f"ターン {room['period']}/{effective_num_periods}"
+        f"ターン {room['period']}/{room["num_periods"]}"
     )
 
     st.write(
@@ -1538,9 +1543,9 @@ elif st.session_state.screen == "result":
 
     period = room["period"]
 
-    high_periods = room["high_periods"]
-    published_period = room["published_period"]
-    published_wealths = room["published_wealths"]
+    high_periods = room["high_periods"].get(st.session_state.my_id, [])
+    published_period = room["published_period"].get(st.session_state.my_id) if isinstance(room["published_period"], dict) else None
+    published_wealths = room["published_wealths"].get(st.session_state.my_id) if isinstance(room["published_wealths"], dict) else None
 
     is_high = period in high_periods
     my_index = player["player_number"] - 1
@@ -1569,7 +1574,7 @@ elif st.session_state.screen == "result":
     acquired_assets = wealth_after - wealth_before
 
     st.subheader(
-        f"結果 （ターン{period}/{effective_num_periods}）"
+        f"結果 （ターン{period}/{room["num_periods"]}）"
     )
 
     st.write(
