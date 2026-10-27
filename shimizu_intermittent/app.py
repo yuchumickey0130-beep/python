@@ -1794,4 +1794,5 @@ elif st.session_state.screen == "final_end":
     st.write("これで実験は終了です。")
     st.write("ご参加ありがとうございました。")
 
+    wait_for_phase_change("finished", room["game"], room["period"])
     st.stop()
