@@ -275,6 +275,11 @@ if "screen" not in st.session_state:
 if "decision_start_time" not in st.session_state:
     st.session_state.decision_start_time = None
 
+if "result_review_key" not in st.session_state:
+    st.session_state.result_review_key = None
+if "result_review_start_time" not in st.session_state:
+    st.session_state.result_review_start_time = None
+
 render_brand_badge()
 
 if "my_id" not in st.session_state:
@@ -1457,6 +1462,10 @@ elif st.session_state.screen == "waiting_submission":
 elif st.session_state.screen == "result":
 
     room = db.get_room_state()
+    review_key = (room["game"], room["period"])
+    if st.session_state.result_review_key != review_key:
+        st.session_state.result_review_key = review_key
+        st.session_state.result_review_start_time = time.perf_counter()
     player = db.get_player(st.session_state.my_id)
 
     period = room["period"]
@@ -1597,7 +1606,8 @@ elif st.session_state.screen == "result":
 
         with col1:
             if st.button("はい", type="primary"):
-                db.confirm_result(st.session_state.my_id)
+                elapsed = time.perf_counter() - st.session_state.result_review_start_time
+                db.confirm_result(st.session_state.my_id, elapsed)
                 st.rerun()
 
         with col2:
@@ -1616,6 +1626,10 @@ elif st.session_state.screen == "result":
 elif st.session_state.screen == "final_result":
 
     room = db.get_room_state()
+    review_key = (room["game"], room["period"])
+    if st.session_state.result_review_key != review_key:
+        st.session_state.result_review_key = review_key
+        st.session_state.result_review_start_time = time.perf_counter()
     player = db.get_player(st.session_state.my_id)
     players = db.get_all_players()
 
@@ -1696,9 +1710,8 @@ elif st.session_state.screen == "final_result":
                 type="primary",
                 use_container_width=True
             ):
-                db.confirm_result(
-                    st.session_state.my_id
-                )
+                elapsed = time.perf_counter() - st.session_state.result_review_start_time
+                db.confirm_result(st.session_state.my_id, elapsed)
                 st.rerun()
 
         with col2:
