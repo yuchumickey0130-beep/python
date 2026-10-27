@@ -100,6 +100,7 @@ def init_db():
 
             choice TEXT,
             response_time REAL,
+            result_review_time REAL,
             result TEXT,
 
             wealth_after REAL,
@@ -152,6 +153,11 @@ def init_db():
         None,
         None
     ))
+
+    # Add result review duration to databases created before this version.
+    c.execute("PRAGMA table_info(period_logs)")
+    if "result_review_time" not in [row[1] for row in c.fetchall()]:
+        c.execute("ALTER TABLE period_logs ADD COLUMN result_review_time REAL")
 
     conn.commit()
     conn.close()
@@ -938,28 +944,38 @@ def get_period_logs():
 
     return [dict(row) for row in rows]
 
-def confirm_result(player_id):
+def confirm_result(player_id, result_review_time=None):
+    """Confirm the current result, saving its review time only once."""
     conn = connect_db()
-    c = conn.cursor()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        c = conn.cursor()
+        c.execute("""
+            SELECT game, period, phase FROM room_state WHERE id = 1
+        """)
+        room = c.fetchone()
+        if room is None or room[2] not in ("result", "final_result", "practice_result"):
+            conn.rollback()
+            return False
 
-    c.execute(
-        """
-        UPDATE players
-        SET result_confirmed = 1
-        WHERE player_id = ?
-          AND result_confirmed = 0
-          AND EXISTS (
-              SELECT 1
-              FROM room_state
-              WHERE id = 1
-                AND phase IN ('result', 'final_result', 'practice_result')
-          )
-        """,
-        (player_id,)
-    )
-
-    conn.commit()
-    conn.close()
+        c.execute("""
+            UPDATE players SET result_confirmed = 1
+            WHERE player_id = ? AND result_confirmed = 0
+        """, (player_id,))
+        updated = c.rowcount == 1
+        if updated and room[2] in ("result", "final_result") and result_review_time is not None:
+            c.execute("""
+                UPDATE period_logs SET result_review_time = ?
+                WHERE game = ? AND period = ? AND player_id = ?
+                  AND result_review_time IS NULL
+            """, (max(0.0, float(result_review_time)), room[0], room[1], player_id))
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def start_explanation():
     conn = connect_db()
