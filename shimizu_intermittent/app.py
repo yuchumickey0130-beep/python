@@ -178,7 +178,7 @@ def show_example_decision():
     st.caption("【説明用の画面例】実際の操作はできません")
 
     with st.container(border=True):
-        st.subheader(f"反復投資実験（ターン3/{room["num_periods"]}）")
+        st.subheader(f"反復投資実験（ターン3/{room['num_periods']}）")
         st.write("あなたは Player 1 です。")
 
         st.write("現在の総資産：500 ポイント")
@@ -1373,7 +1373,7 @@ if st.session_state.screen == "decision":
         group_wealths_before=wealths
     )
 
-    st.subheader(f"反復投資実験 （ターン{period}/{room["num_periods"]}）")
+    st.subheader(f"反復投資実験 （ターン{period}/{room['num_periods']}）")
 
     st.write(
         f"あなたは Player {st.session_state.player_number} です。"
@@ -1506,7 +1506,7 @@ elif st.session_state.screen == "waiting_submission":
         st.rerun()
 
     st.subheader(
-        f"ターン {room['period']}/{room["num_periods"]}"
+        f"ターン {room['period']}/{room['num_periods']}"
     )
 
     st.write(
@@ -1574,7 +1574,7 @@ elif st.session_state.screen == "result":
     acquired_assets = wealth_after - wealth_before
 
     st.subheader(
-        f"結果 （ターン{period}/{room["num_periods"]}）"
+        f"結果 （ターン{period}/{room['num_periods']}）"
     )
 
     st.write(
