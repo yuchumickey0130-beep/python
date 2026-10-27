@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import time
 import db
-from collections import Counter
-from matplotlib.lines import Line2D
 
 from config import (
     NUM_PERIODS,
@@ -28,14 +26,20 @@ required_players = (
     else NUM_PLAYERS
 )
 
-db.init_db()
-
-plt.rcParams["font.family"] = "Yu Gothic"
-
 st.set_page_config(
     page_title="反復投資実験",
     layout="centered"
 )
+
+@st.cache_resource
+def initialize_experiment_db():
+    # Schema initialization must not run on every participant rerun.
+    db.init_db()
+    return True
+
+initialize_experiment_db()
+
+plt.rcParams["font.family"] = "Yu Gothic"
 
 st.markdown(
     """
@@ -221,7 +225,7 @@ def show_example_wealth_distribution():
         )
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=4)
 def wait_for_phase_change(current_phase, current_game, current_period):
 
     room_now = db.get_room_state()
@@ -234,7 +238,7 @@ def wait_for_phase_change(current_phase, current_game, current_period):
         st.rerun(scope="app")
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=4)
 def watch_admin_state():
 
     room_now = db.get_room_state()
@@ -263,18 +267,6 @@ def watch_admin_state():
 
     elif st.session_state.admin_state_key != current_key:
         st.session_state.admin_state_key = current_key
-        st.rerun()
-
-@st.fragment(run_every=2)
-def watch_room_reset():
-
-    if st.session_state.my_id is None:
-        return
-
-    if st.session_state.is_admin:
-        return
-
-    if db.get_player(st.session_state.my_id) is None:
         st.rerun(scope="app")
 
 if "screen" not in st.session_state:
@@ -351,8 +343,6 @@ if not st.session_state.is_admin:
         st.session_state.decision_start_time = None
 
         st.rerun()
-
-watch_room_reset()
 
 # DBのフェーズに参加者画面を同期
 if not st.session_state.is_admin:
@@ -894,7 +884,7 @@ if not room["is_started"]:
                 f"現在の参加者：{len(players)} / {required_players}"
             )
     
-    @st.fragment(run_every=2)
+    @st.fragment(run_every=4)
     def watch_prestart_state(
         displayed_phase,
         displayed_started,
@@ -1420,19 +1410,17 @@ if st.session_state.screen == "decision":
             - st.session_state.decision_start_time
         )
 
-        db.submit_choice(
-            st.session_state.my_id,
-            player_choice,
-            response_time
-        )
-
-        db.update_period_log_choice(
-            game=room["game"],
-            player_id=st.session_state.my_id,
-            period=period,
-            choice=player_choice,
-            response_time=response_time
-        )
+        try:
+            db.submit_choice_with_log(
+                player_id=st.session_state.my_id,
+                game=room["game"],
+                period=period,
+                choice=player_choice,
+                response_time=response_time
+            )
+        except ValueError:
+            st.warning("ターンの状態が変わりました。画面を更新して確認してください。")
+            st.stop()
 
         st.session_state.decision_start_time = None
         st.session_state.screen = "waiting_submission"
@@ -1490,6 +1478,10 @@ elif st.session_state.screen == "result":
         st.session_state.my_id,
         period
     )
+
+    if period_log is None:
+        st.error("結果ログが見つかりません。管理者に連絡してください。")
+        st.stop()
 
     wealth_before = period_log["wealth_before"]
     investment = period_log["endowment"]
