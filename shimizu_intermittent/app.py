@@ -291,6 +291,8 @@ if "result_review_key" not in st.session_state:
     st.session_state.result_review_key = None
 if "result_review_start_time" not in st.session_state:
     st.session_state.result_review_start_time = None
+if "result_view_open_key" not in st.session_state:
+    st.session_state.result_view_open_key = None
 
 render_brand_badge()
 
@@ -483,6 +485,15 @@ if not room["is_started"]:
                 st.info("参加者の回答を待っています。")
 
         elif room["phase"] == "practice_result":
+
+            practice_key = ("practice", room["game"], room["period"])
+            if st.session_state.result_view_open_key != practice_key:
+                st.subheader("練習結果が確定しました")
+                st.write("準備ができたら「結果を確認する」を押してください。")
+                if st.button("結果を確認する", type="primary", key="open_practice_result"):
+                    st.session_state.result_view_open_key = practice_key
+                    st.rerun()
+                st.stop()
 
             st.subheader("練習結果")
 
@@ -1503,9 +1514,16 @@ elif st.session_state.screen == "result":
 
     room = db.get_room_state()
     review_key = (room["game"], room["period"])
-    if st.session_state.result_review_key != review_key:
-        st.session_state.result_review_key = review_key
-        st.session_state.result_review_start_time = time.perf_counter()
+    if st.session_state.result_view_open_key != ("result", *review_key):
+        st.subheader(f"ターン {room['period']} の結果が確定しました")
+        st.write("準備ができたら「結果を確認する」を押してください。")
+        if st.button("結果を確認する", type="primary", key="open_result"):
+            st.session_state.result_view_open_key = ("result", *review_key)
+            st.session_state.result_review_key = review_key
+            st.session_state.result_review_start_time = time.perf_counter()
+            st.rerun()
+        wait_for_phase_change("result", room["game"], room["period"])
+        st.stop()
     player = db.get_player(st.session_state.my_id)
 
     period = room["period"]
@@ -1667,9 +1685,16 @@ elif st.session_state.screen == "final_result":
 
     room = db.get_room_state()
     review_key = (room["game"], room["period"])
-    if st.session_state.result_review_key != review_key:
-        st.session_state.result_review_key = review_key
-        st.session_state.result_review_start_time = time.perf_counter()
+    if st.session_state.result_view_open_key != ("final_result", *review_key):
+        st.subheader("ゲームの結果が確定しました")
+        st.write("準備ができたら「結果を確認する」を押してください。")
+        if st.button("結果を確認する", type="primary", key="open_final_result"):
+            st.session_state.result_view_open_key = ("final_result", *review_key)
+            st.session_state.result_review_key = review_key
+            st.session_state.result_review_start_time = time.perf_counter()
+            st.rerun()
+        wait_for_phase_change("final_result", room["game"], room["period"])
+        st.stop()
     player = db.get_player(st.session_state.my_id)
     players = db.get_all_players()
 
