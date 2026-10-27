@@ -237,6 +237,9 @@ def show_example_wealth_distribution():
 def wait_for_phase_change(current_phase, current_game, current_period):
 
     room_now = db.get_room_state()
+    if st.session_state.get("my_id") and not st.session_state.get("is_admin"):
+        if db.get_player(st.session_state.my_id) is None:
+            st.rerun(scope="app")
 
     if (
         room_now["phase"] != current_phase
@@ -379,7 +382,9 @@ if not st.session_state.is_admin:
 
     elif room["phase"] == "decision":
 
-        if player["has_submitted"]:
+        if room["is_started"] and room["period"] == 1 and not player["game_start_ack"]:
+            st.session_state.screen = "game_start_gate"
+        elif player["has_submitted"]:
             st.session_state.screen = "waiting_submission"
         else:
             st.session_state.screen = "decision"
@@ -921,6 +926,9 @@ if not room["is_started"]:
     ):
         room_now = db.get_room_state()
         players_now = db.get_all_players()
+        if st.session_state.get("my_id") and not st.session_state.get("is_admin"):
+            if db.get_player(st.session_state.my_id) is None:
+                st.rerun(scope="app")
 
         if (
             room_now["phase"] != displayed_phase
@@ -1193,6 +1201,16 @@ if room["is_started"] and st.session_state.is_admin:
 # 管理者はここでDBの変化を監視
 if st.session_state.is_admin:
     watch_admin_state()
+    st.stop()
+
+if st.session_state.screen == "game_start_gate":
+    st.subheader(f"ゲーム {room['game']} を開始します")
+    st.write("準備ができたら「OK」を押して投資判断を始めてください。")
+    if st.button("OK・投資判断を開始", type="primary"):
+        db.acknowledge_game_start(st.session_state.my_id)
+        st.session_state.decision_start_time = time.perf_counter()
+        st.rerun()
+    wait_for_phase_change("decision", room["game"], room["period"])
     st.stop()
 
 if st.session_state.screen == "decision":
