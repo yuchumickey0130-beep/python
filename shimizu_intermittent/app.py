@@ -96,10 +96,6 @@ def generate_high_periods():
 
     random.shuffle(intervals)
 
-    # Short tests cannot follow the normal 22-turn publication schedule.
-    if effective_num_periods != NUM_PERIODS:
-        return [1] if effective_num_periods > 1 else []
-
     # 1ターン目の終了時に初回公開
     high_periods = [1]
     current_period = 1
