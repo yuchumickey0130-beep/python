@@ -7,6 +7,7 @@ import db
 
 from config import (
     NUM_PERIODS,
+    GAME_PATTERN,
     NUM_PLAYERS,
     SUCCESS_CAPACITY,
     INITIAL_WEALTH,
@@ -16,6 +17,8 @@ from config import (
     MAX_HIGH_INTERVAL,
     TEST_MODE,
     TEST_NUM_PLAYERS,
+    TEST_NUM_PERIODS,
+    EXPLANATION_MODE,
     PRACTICE_MODE,
     ALLOW_ADMIN_RESET,
 )
@@ -25,6 +28,8 @@ required_players = (
     if TEST_MODE
     else NUM_PLAYERS
 )
+
+initial_num_periods = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
 
 st.set_page_config(
     page_title="反復投資実験",
@@ -84,27 +89,27 @@ def render_brand_badge():
     )
 
 
-def generate_high_periods():
-    intervals = list(range(
-        MIN_HIGH_INTERVAL,
-        MAX_HIGH_INTERVAL + 1
-    ))
+def pattern_length(pattern):
+    if TEST_MODE:
+        return TEST_NUM_PERIODS
+    return {1: 22, 2: 16}[pattern]
 
-    random.shuffle(intervals)
 
-    # 1ターン目の終了時に初回公開
-    high_periods = [1]
-    current_period = 1
+def generate_high_periods(pattern):
+    """Independent random permutation for each registered participant."""
+    intervals = [2, 3, 4, 5, 6] if pattern == 1 else [2, 3, 4, 5]
+    schedule = {}
+    for participant in db.get_all_players():
+        shuffled = intervals.copy()
+        random.shuffle(shuffled)
+        current = 1
+        turns = [1]
+        for interval in shuffled:
+            current += interval
+            turns.append(current)
+        schedule[participant["player_id"]] = turns
+    return schedule
 
-    # 2〜6ターンの間隔を各1回使用
-    for interval in intervals:
-        current_period += interval
-        high_periods.append(current_period)
-
-    # 最終通常公開は21ターン目
-    assert current_period == NUM_PERIODS - 1
-
-    return high_periods
 
 def plot_wealth_distribution(wealths, my_index):
     import numpy as np
@@ -160,8 +165,8 @@ def plot_wealth_distribution(wealths, my_index):
     ax.set_ylim(bottom=0)
 
     if max_wealth > min_wealth:
-        from matplotlib.ticker import MultipleLocator
-        ax.xaxis.set_major_locator(MultipleLocator(10))
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=10))
 
     ax.grid(axis="y", alpha=0.15)
     ax.set_axisbelow(True)
@@ -173,7 +178,7 @@ def show_example_decision():
     st.caption("【説明用の画面例】実際の操作はできません")
 
     with st.container(border=True):
-        st.subheader(f"反復投資実験（ターン3/{NUM_PERIODS}）")
+        st.subheader(f"反復投資実験（ターン3/{room['num_periods']}）")
         st.write("あなたは Player 1 です。")
 
         st.write("現在の総資産：500 ポイント")
@@ -229,6 +234,9 @@ def show_example_wealth_distribution():
 def wait_for_phase_change(current_phase, current_game, current_period):
 
     room_now = db.get_room_state()
+    if st.session_state.get("my_id") and not st.session_state.get("is_admin"):
+        if db.get_player(st.session_state.my_id) is None:
+            st.rerun(scope="app")
 
     if (
         room_now["phase"] != current_phase
@@ -259,7 +267,8 @@ def watch_admin_state():
         room_now["period"],
         room_now["phase"],
         submitted_count_now,
-        confirmed_count_now
+        confirmed_count_now,
+        sum(player["game_ready"] for player in players_now)
     )
 
     if "admin_state_key" not in st.session_state:
@@ -274,6 +283,13 @@ if "screen" not in st.session_state:
 
 if "decision_start_time" not in st.session_state:
     st.session_state.decision_start_time = None
+
+if "result_review_key" not in st.session_state:
+    st.session_state.result_review_key = None
+if "result_review_start_time" not in st.session_state:
+    st.session_state.result_review_start_time = None
+if "result_view_open_key" not in st.session_state:
+    st.session_state.result_view_open_key = None
 
 render_brand_badge()
 
@@ -354,6 +370,9 @@ if not st.session_state.is_admin:
     if room["phase"] == "finished":
         st.session_state.screen = "final_end"
 
+    elif room["phase"] == "game_break":
+        st.session_state.screen = "game_break"
+
     elif room["phase"] == "final_result":
         st.session_state.screen = "final_result"
 
@@ -362,8 +381,13 @@ if not st.session_state.is_admin:
 
     elif room["phase"] == "decision":
 
+        decision_key = (room["game"], room["period"])
         if player["has_submitted"]:
             st.session_state.screen = "waiting_submission"
+        elif room["period"] == 1 and not player["game_start_ack"]:
+            st.session_state.screen = "game_start_gate"
+        elif st.session_state.get("decision_ack_key") != decision_key:
+            st.session_state.screen = "turn_start_gate"
         else:
             st.session_state.screen = "decision"
 
@@ -390,9 +414,18 @@ if not room["is_started"]:
 
             if len(players) == required_players:
 
-                if st.button("説明開始", type="primary"):
-                    db.start_explanation()
-                    st.rerun()
+                if EXPLANATION_MODE:
+                    if st.button("説明開始", type="primary"):
+                        db.start_explanation()
+                        st.rerun()
+                elif PRACTICE_MODE:
+                    if st.button("練習を開始（説明を省略）", type="primary"):
+                        db.start_practice()
+                        st.rerun()
+                else:
+                    if st.button("本番を開始（説明・練習を省略）", type="primary"):
+                        db.set_room_started(generate_high_periods(GAME_PATTERN), pattern_length(GAME_PATTERN))
+                        st.rerun()
 
             else:
                 st.info(
@@ -418,8 +451,8 @@ if not room["is_started"]:
 
                 else:
                     if st.button("本番を開始", type="primary"):
-                        high_periods = generate_high_periods()
-                        db.set_room_started(high_periods)
+                        high_periods = generate_high_periods(GAME_PATTERN)
+                        db.set_room_started(high_periods, pattern_length(GAME_PATTERN))
                         st.rerun()
 
             else:
@@ -452,6 +485,15 @@ if not room["is_started"]:
                 st.info("参加者の回答を待っています。")
 
         elif room["phase"] == "practice_result":
+
+            practice_key = ("practice", room["game"], room["period"])
+            if st.session_state.result_view_open_key != practice_key:
+                st.subheader("練習結果が確定しました")
+                st.write("準備ができたら「結果を確認する」を押してください。")
+                if st.button("結果を確認する", type="primary", key="open_practice_result"):
+                    st.session_state.result_view_open_key = practice_key
+                    st.rerun()
+                st.stop()
 
             st.subheader("練習結果")
 
@@ -492,11 +534,12 @@ if not room["is_started"]:
 
             if st.button("本番を開始", type="primary"):
 
-                high_periods = generate_high_periods()
+                high_periods = generate_high_periods(GAME_PATTERN)
 
                 db.start_main_after_practice(
                     INITIAL_WEALTH,
-                    high_periods
+                    high_periods,
+                    pattern_length(GAME_PATTERN)
                 )
 
                 st.rerun()
@@ -660,7 +703,7 @@ if not room["is_started"]:
             st.markdown("""
     1. 説明を読み終えたら「説明を確認しました」を押してください。
     2. 質問がある場合は挙手し、実験担当者に確認してください。
-    3. 全員の確認後、1ターンの練習を行います。
+    3. 練習を実施する場合は、全員の確認後に1ターンの練習を行います。
     4. 練習終了後、本番の実験を開始します。
     5. 本番では初期資産500ポイントから開始し、複数ターンの投資判断を繰り返します。
     """)
@@ -895,6 +938,9 @@ if not room["is_started"]:
     ):
         room_now = db.get_room_state()
         players_now = db.get_all_players()
+        if st.session_state.get("my_id") and not st.session_state.get("is_admin"):
+            if db.get_player(st.session_state.my_id) is None:
+                st.rerun(scope="app")
 
         if (
             room_now["phase"] != displayed_phase
@@ -1106,7 +1152,7 @@ if room["is_started"] and st.session_state.is_admin:
                 st.rerun()
 
 
-    elif room["phase"] in ("result", "final_result"):
+    elif room["phase"] in ("result", "final_result", "game_break"):
 
         confirmed_count = sum(
             player["result_confirmed"]
@@ -1125,7 +1171,25 @@ if room["is_started"] and st.session_state.is_admin:
         st.success("結果を確定しました。")
         st.write("参加者は結果画面を確認中です。")
 
-        if room["period"] < NUM_PERIODS:
+        if room["phase"] == "game_break":
+            ready_count = sum(p["game_ready"] for p in players)
+            st.write(f"次のゲームの準備完了：{ready_count}/{required_players} 人")
+            next_pattern = st.selectbox("次のゲームのパターン", [1, 2],
+                                        index=0 if GAME_PATTERN == 1 else 1,
+                                        format_func=lambda x: "1：22ターン" if x == 1 else "2：16ターン",
+                                        key=f"next_pattern_{room['game']}")
+            if ready_count == required_players and len(players) == required_players:
+                st.success("全員の準備ができました。")
+                if st.button("次のゲームを開始", type="primary"):
+                    db.start_next_game(INITIAL_WEALTH, generate_high_periods(next_pattern), pattern_length(next_pattern))
+                    st.rerun()
+            else:
+                st.info("全員の準備ができるまで開始できません。")
+            if st.button("実験を終了"):
+                db.end_experiment()
+                st.rerun()
+
+        elif room["period"] < room["num_periods"]:
 
             if st.button(
                 "次のターンへ",
@@ -1140,42 +1204,49 @@ if room["is_started"] and st.session_state.is_admin:
                 f"ゲーム {room['game']} の全ターンが終了しました。"
             )
 
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button(
-                    "次のゲームを開始",
-                    type="primary"
-                ):
-                    new_high_periods = generate_high_periods()
-
-                    db.start_next_game(
-                        INITIAL_WEALTH,
-                        new_high_periods
-                    )
-
+            if confirmed_count == required_players and len(players) == required_players:
+                if st.button("休憩・準備確認へ進む", type="primary"):
+                    db.enter_game_break()
                     st.rerun()
-
-            with col2:
-                if st.button("実験を終了"):
-
-                    db.end_experiment()
-
-                    st.rerun()
+            else:
+                st.info("全員が結果を確認するまで休憩画面には進めません。")
+            if st.button("実験を終了"):
+                db.end_experiment()
+                st.rerun()
 
 # 管理者はここでDBの変化を監視
 if st.session_state.is_admin:
     watch_admin_state()
     st.stop()
 
+if st.session_state.screen == "game_start_gate":
+    st.subheader(f"ゲーム {room['game']} を開始します")
+    st.write("準備ができたら「OK」を押して投資判断を始めてください。")
+    if st.button("OK・投資判断を開始", type="primary"):
+        db.acknowledge_game_start(st.session_state.my_id)
+        st.session_state.decision_ack_key = (room["game"], room["period"])
+        st.session_state.decision_start_time = time.perf_counter()
+        st.rerun()
+    wait_for_phase_change("decision", room["game"], room["period"])
+    st.stop()
+
+if st.session_state.screen == "turn_start_gate":
+    st.subheader(f"ターン {room['period']} を開始します")
+    st.write("準備ができたら「OK」を押して投資判断を始めてください。")
+    if st.button("OK・投資判断を開始", type="primary", key=f"turn_start_{room['game']}_{room['period']}"):
+        st.session_state.decision_ack_key = (room["game"], room["period"])
+        st.session_state.decision_start_time = time.perf_counter()
+        st.rerun()
+    wait_for_phase_change("decision", room["game"], room["period"])
+    st.stop()
+
 if st.session_state.screen == "decision":
 
     period = room["period"]
     wealth = player["wealth"]
-    high_periods = room["high_periods"]
-
-    published_period = room["published_period"]
-    published_wealths = room["published_wealths"]
+    high_periods = room["high_periods"].get(st.session_state.my_id, [])
+    published_period = room["published_period"].get(st.session_state.my_id) if isinstance(room["published_period"], dict) else None
+    published_wealths = room["published_wealths"].get(st.session_state.my_id) if isinstance(room["published_wealths"], dict) else None
 
     if st.session_state.decision_start_time is None:
         st.session_state.decision_start_time = time.perf_counter()
@@ -1302,7 +1373,7 @@ if st.session_state.screen == "decision":
         group_wealths_before=wealths
     )
 
-    st.subheader(f"反復投資実験 （ターン{period}/{NUM_PERIODS}）")
+    st.subheader(f"反復投資実験 （ターン{period}/{room['num_periods']}）")
 
     st.write(
         f"あなたは Player {st.session_state.player_number} です。"
@@ -1322,7 +1393,7 @@ if st.session_state.screen == "decision":
 
     st.divider()
 
-    turns_to_end = NUM_PERIODS - period
+    turns_to_end = room["num_periods"] - period
 
     # 資産情報の公開
     if published_wealths is None:
@@ -1435,7 +1506,7 @@ elif st.session_state.screen == "waiting_submission":
         st.rerun()
 
     st.subheader(
-        f"ターン {room['period']}/{NUM_PERIODS}"
+        f"ターン {room['period']}/{room['num_periods']}"
     )
 
     st.write(
@@ -1457,13 +1528,24 @@ elif st.session_state.screen == "waiting_submission":
 elif st.session_state.screen == "result":
 
     room = db.get_room_state()
+    review_key = (room["game"], room["period"])
+    if st.session_state.result_view_open_key != ("result", *review_key):
+        st.subheader(f"ターン {room['period']} の結果が確定しました")
+        st.write("準備ができたら「結果を確認する」を押してください。")
+        if st.button("結果を確認する", type="primary", key="open_result"):
+            st.session_state.result_view_open_key = ("result", *review_key)
+            st.session_state.result_review_key = review_key
+            st.session_state.result_review_start_time = time.perf_counter()
+            st.rerun()
+        wait_for_phase_change("result", room["game"], room["period"])
+        st.stop()
     player = db.get_player(st.session_state.my_id)
 
     period = room["period"]
 
-    high_periods = room["high_periods"]
-    published_period = room["published_period"]
-    published_wealths = room["published_wealths"]
+    high_periods = room["high_periods"].get(st.session_state.my_id, [])
+    published_period = room["published_period"].get(st.session_state.my_id) if isinstance(room["published_period"], dict) else None
+    published_wealths = room["published_wealths"].get(st.session_state.my_id) if isinstance(room["published_wealths"], dict) else None
 
     is_high = period in high_periods
     my_index = player["player_number"] - 1
@@ -1492,7 +1574,7 @@ elif st.session_state.screen == "result":
     acquired_assets = wealth_after - wealth_before
 
     st.subheader(
-        f"結果 （ターン{period}/{NUM_PERIODS}）"
+        f"結果 （ターン{period}/{room['num_periods']}）"
     )
 
     st.write(
@@ -1597,7 +1679,8 @@ elif st.session_state.screen == "result":
 
         with col1:
             if st.button("はい", type="primary"):
-                db.confirm_result(st.session_state.my_id)
+                elapsed = time.perf_counter() - st.session_state.result_review_start_time
+                db.confirm_result(st.session_state.my_id, elapsed)
                 st.rerun()
 
         with col2:
@@ -1616,6 +1699,17 @@ elif st.session_state.screen == "result":
 elif st.session_state.screen == "final_result":
 
     room = db.get_room_state()
+    review_key = (room["game"], room["period"])
+    if st.session_state.result_view_open_key != ("final_result", *review_key):
+        st.subheader("ゲームの結果が確定しました")
+        st.write("準備ができたら「結果を確認する」を押してください。")
+        if st.button("結果を確認する", type="primary", key="open_final_result"):
+            st.session_state.result_view_open_key = ("final_result", *review_key)
+            st.session_state.result_review_key = review_key
+            st.session_state.result_review_start_time = time.perf_counter()
+            st.rerun()
+        wait_for_phase_change("final_result", room["game"], room["period"])
+        st.stop()
     player = db.get_player(st.session_state.my_id)
     players = db.get_all_players()
 
@@ -1696,9 +1790,8 @@ elif st.session_state.screen == "final_result":
                 type="primary",
                 use_container_width=True
             ):
-                db.confirm_result(
-                    st.session_state.my_id
-                )
+                elapsed = time.perf_counter() - st.session_state.result_review_start_time
+                db.confirm_result(st.session_state.my_id, elapsed)
                 st.rerun()
 
         with col2:
@@ -1719,6 +1812,21 @@ elif st.session_state.screen == "final_result":
 
     st.stop()
 
+elif st.session_state.screen == "game_break":
+    room = db.get_room_state()
+    player = db.get_player(st.session_state.my_id)
+    st.subheader(f"ゲーム {room['game']} が終了しました")
+    st.write("休憩が必要な方は、ここで休憩してください。")
+    st.write("次のゲームの準備ができたら「準備できました」を押してください。")
+    if player["game_ready"]:
+        st.success("準備完了を受け付けました。")
+        st.write("全員の準備ができた後、実験者が次のゲームを開始します。")
+    elif st.button("準備できました", type="primary"):
+        db.mark_game_ready(st.session_state.my_id)
+        st.rerun()
+    wait_for_phase_change("game_break", room["game"], room["period"])
+    st.stop()
+
 elif st.session_state.screen == "final_end":
 
     st.subheader("実験終了")
@@ -1726,4 +1834,5 @@ elif st.session_state.screen == "final_end":
     st.write("これで実験は終了です。")
     st.write("ご参加ありがとうございました。")
 
+    wait_for_phase_change("finished", room["game"], room["period"])
     st.stop()

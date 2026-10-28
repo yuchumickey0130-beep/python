@@ -8,7 +8,10 @@ from config import (
     NUM_PLAYERS,
     TEST_MODE,
     TEST_NUM_PLAYERS,
+    TEST_NUM_PERIODS,
 )
+
+EFFECTIVE_NUM_PERIODS = TEST_NUM_PERIODS if TEST_MODE else NUM_PERIODS
 
 DB_NAME = "experiment_room.db"
 
@@ -56,6 +59,11 @@ def init_db():
         )
     """)
 
+    c.execute("PRAGMA table_info(room_state)")
+    room_columns = [row[1] for row in c.fetchall()]
+    if "num_periods" not in room_columns:
+        c.execute("ALTER TABLE room_state ADD COLUMN num_periods INTEGER NOT NULL DEFAULT 22")
+
     # 既存DBにも結果確認用の列を追加
     c.execute("PRAGMA table_info(players)")
     columns = [
@@ -68,6 +76,12 @@ def init_db():
             ALTER TABLE players
             ADD COLUMN result_confirmed INTEGER NOT NULL DEFAULT 0
         """)
+
+    if "game_start_ack" not in columns:
+        c.execute("ALTER TABLE players ADD COLUMN game_start_ack INTEGER NOT NULL DEFAULT 0")
+
+    if "game_ready" not in columns:
+        c.execute("ALTER TABLE players ADD COLUMN game_ready INTEGER NOT NULL DEFAULT 0")
 
     if "explanation_confirmed" not in columns:
         c.execute("""
@@ -100,6 +114,7 @@ def init_db():
 
             choice TEXT,
             response_time REAL,
+            result_review_time REAL,
             result TEXT,
 
             wealth_after REAL,
@@ -152,6 +167,11 @@ def init_db():
         None,
         None
     ))
+
+    # Add result review duration to databases created before this version.
+    c.execute("PRAGMA table_info(period_logs)")
+    if "result_review_time" not in [row[1] for row in c.fetchall()]:
+        c.execute("ALTER TABLE period_logs ADD COLUMN result_review_time REAL")
 
     conn.commit()
     conn.close()
@@ -232,7 +252,9 @@ def get_player(player_id):
             has_submitted,
             success,
             result_confirmed,
-            explanation_confirmed
+            explanation_confirmed,
+            game_ready,
+            game_start_ack
         FROM players
         WHERE player_id = ?
         """,
@@ -258,7 +280,9 @@ def get_player(player_id):
             else None
         ),
         "result_confirmed": bool(row[7]),
-        "explanation_confirmed": bool(row[8])
+        "explanation_confirmed": bool(row[8]),
+        "game_ready": bool(row[9]),
+        "game_start_ack": bool(row[10])
     }
 
 def get_all_players():
@@ -275,7 +299,9 @@ def get_all_players():
             response_time,
             has_submitted,
             result_confirmed,
-            explanation_confirmed
+            explanation_confirmed,
+            game_ready,
+            game_start_ack
         FROM players
         ORDER BY player_number
         """
@@ -295,7 +321,9 @@ def get_all_players():
             "response_time": row[4],
             "has_submitted": bool(row[5]),
             "result_confirmed": bool(row[6]),
-            "explanation_confirmed": bool(row[7])
+            "explanation_confirmed": bool(row[7]),
+            "game_ready": bool(row[8]),
+            "game_start_ack": bool(row[9])
         })
 
     return players
@@ -317,7 +345,8 @@ def get_room_state():
             num_invested,
             num_success,
             num_failed,
-            num_not_invested
+            num_not_invested,
+            num_periods
         FROM room_state
         WHERE id = 1
     """)
@@ -332,20 +361,21 @@ def get_room_state():
         "is_started": bool(row[3]),
         "experiment_over": bool(row[4]),
         "high_periods": json.loads(row[5]),
-        "published_period": row[6],
+        "published_period": (json.loads(row[6]) if isinstance(row[6], str) and row[6].startswith("{") else None),
         "published_wealths": (
             json.loads(row[7])
-            if row[7] is not None
+            if isinstance(row[7], str) and row[7].startswith("{")
             else None
         ),
         "num_invested": row[8],
         "num_success": row[9],
         "num_failed": row[10],
-        "num_not_invested": row[11]
+        "num_not_invested": row[11],
+        "num_periods": row[12]
     }
 
 
-def set_room_started(high_periods):
+def set_room_started(high_periods, num_periods):
     conn = connect_db()
     c = conn.cursor()
 
@@ -358,10 +388,11 @@ def set_room_started(high_periods):
             period = 1,
             phase = 'decision',
             experiment_over = 0,
-            high_periods = ?
+            high_periods = ?,
+            num_periods = ?
         WHERE id = 1
         """,
-        (json.dumps(high_periods),)
+        (json.dumps(high_periods), num_periods)
     )
 
     conn.commit()
@@ -388,7 +419,8 @@ def reset_room():
             phase = 'decision',
             is_started = 0,
             experiment_over = 0,
-            high_periods = '[]',
+            high_periods = '{}',
+            num_periods = 22,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -401,6 +433,19 @@ def reset_room():
 
     conn.commit()
     conn.close()
+
+def acknowledge_game_start(player_id):
+    conn = connect_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE players SET game_start_ack = 1
+        WHERE player_id = ? AND game_start_ack = 0
+          AND EXISTS (SELECT 1 FROM room_state WHERE id = 1
+                      AND phase = 'decision' AND period = 1 AND is_started = 1)
+    """, (player_id,))
+    conn.commit()
+    conn.close()
+
 
 def submit_choice(player_id, choice, response_time):
     conn = connect_db()
@@ -585,28 +630,25 @@ def finalize_period(success_capacity, return_multiplier):
     # 最終ターンのみ、専用の最終結果画面へ移行
     if is_practice:
         next_phase = "practice_result"
-    elif period == NUM_PERIODS:
+    elif period == (TEST_NUM_PERIODS if TEST_MODE else get_num_periods_for_cursor(c)):
         next_phase = "final_result"
     else:
         next_phase = "result"
     
 
     # HIGHターンなら、このターン終了時の資産情報を公開
-    if not is_practice and period in high_periods and period != NUM_PERIODS:
+    if not is_practice and period != (TEST_NUM_PERIODS if TEST_MODE else get_num_periods_for_cursor(c)):
 
-        c.execute(
-            """
-            UPDATE room_state
-            SET
-                published_period = ?,
-                published_wealths = ?
-            WHERE id = 1
-            """,
-            (
-                period,
-                json.dumps(group_wealths_after)
-            )
-        )
+        c.execute("SELECT published_period, published_wealths FROM room_state WHERE id = 1")
+        pub_row = c.fetchone()
+        pub_periods = json.loads(pub_row[0]) if pub_row[0] and pub_row[0].startswith("{") else {}
+        pub_wealths = json.loads(pub_row[1]) if pub_row[1] and pub_row[1].startswith("{") else {}
+        for participant_id, schedule in high_periods.items():
+            if period in schedule:
+                pub_periods[participant_id] = period
+                pub_wealths[participant_id] = group_wealths_after
+        c.execute("UPDATE room_state SET published_period = ?, published_wealths = ? WHERE id = 1",
+                  (json.dumps(pub_periods), json.dumps(pub_wealths)))
 
     # 更新後の順位
     ranks_after = [
@@ -701,6 +743,11 @@ def finalize_period(success_capacity, return_multiplier):
     conn.commit()
     conn.close()
 
+def get_num_periods_for_cursor(c):
+    c.execute("SELECT num_periods FROM room_state WHERE id = 1")
+    return c.fetchone()[0]
+
+
 def advance_to_next_period():
     conn = connect_db()
     c = conn.cursor()
@@ -736,9 +783,47 @@ def advance_to_next_period():
     conn.commit()
     conn.close()
 
-def start_next_game(initial_wealth, high_periods):
+def enter_game_break():
+    """Show rest/readiness only after every participant confirms final results."""
     conn = connect_db()
     c = conn.cursor()
+    c.execute("""
+        UPDATE room_state SET phase = 'game_break'
+        WHERE id = 1 AND phase = 'final_result'
+          AND (SELECT COUNT(*) FROM players WHERE result_confirmed = 1)
+              = (SELECT COUNT(*) FROM players)
+          AND (SELECT COUNT(*) FROM players) > 0
+    """)
+    conn.commit()
+    conn.close()
+
+
+def mark_game_ready(player_id):
+    conn = connect_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE players SET game_ready = 1
+        WHERE player_id = ? AND game_ready = 0
+          AND EXISTS (SELECT 1 FROM room_state WHERE id = 1 AND phase = 'game_break')
+    """, (player_id,))
+    conn.commit()
+    conn.close()
+
+
+def start_next_game(initial_wealth, high_periods, num_periods):
+    conn = connect_db()
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT phase,
+               (SELECT COUNT(*) FROM players),
+               (SELECT COUNT(*) FROM players WHERE game_ready = 1)
+        FROM room_state WHERE id = 1
+    """)
+    state = c.fetchone()
+    if state is None or state[0] != "game_break" or state[1] == 0 or state[1] != state[2]:
+        conn.close()
+        return False
 
     # 実験全体を次のゲームへ
     c.execute(
@@ -749,6 +834,7 @@ def start_next_game(initial_wealth, high_periods):
             period = 1,
             phase = 'decision',
             high_periods = ?,
+            num_periods = ?,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -757,7 +843,7 @@ def start_next_game(initial_wealth, high_periods):
             num_not_invested = NULL
         WHERE id = 1
         """,
-        (json.dumps(high_periods),)
+        (json.dumps(high_periods), num_periods)
     )
 
     # 全参加者を初期状態へ戻す
@@ -770,7 +856,9 @@ def start_next_game(initial_wealth, high_periods):
             response_time = NULL,
             has_submitted = 0,
             success = NULL,
-            result_confirmed = 0
+            result_confirmed = 0,
+            game_ready = 0,
+            game_start_ack = 0
         """,
         (initial_wealth,)
     )
@@ -938,28 +1026,38 @@ def get_period_logs():
 
     return [dict(row) for row in rows]
 
-def confirm_result(player_id):
+def confirm_result(player_id, result_review_time=None):
+    """Confirm the current result, saving its review time only once."""
     conn = connect_db()
-    c = conn.cursor()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        c = conn.cursor()
+        c.execute("""
+            SELECT game, period, phase FROM room_state WHERE id = 1
+        """)
+        room = c.fetchone()
+        if room is None or room[2] not in ("result", "final_result", "practice_result"):
+            conn.rollback()
+            return False
 
-    c.execute(
-        """
-        UPDATE players
-        SET result_confirmed = 1
-        WHERE player_id = ?
-          AND result_confirmed = 0
-          AND EXISTS (
-              SELECT 1
-              FROM room_state
-              WHERE id = 1
-                AND phase IN ('result', 'final_result', 'practice_result')
-          )
-        """,
-        (player_id,)
-    )
-
-    conn.commit()
-    conn.close()
+        c.execute("""
+            UPDATE players SET result_confirmed = 1
+            WHERE player_id = ? AND result_confirmed = 0
+        """, (player_id,))
+        updated = c.rowcount == 1
+        if updated and room[2] in ("result", "final_result") and result_review_time is not None:
+            c.execute("""
+                UPDATE period_logs SET result_review_time = ?
+                WHERE game = ? AND period = ? AND player_id = ?
+                  AND result_review_time IS NULL
+            """, (max(0.0, float(result_review_time)), room[0], room[1], player_id))
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def start_explanation():
     conn = connect_db()
@@ -1020,14 +1118,11 @@ def start_practice():
         SET phase = 'practice_decision'
         WHERE id = 1
           AND is_started = 0
-          AND phase = 'explanation'
           AND (
-              SELECT COUNT(*)
-              FROM players
-              WHERE explanation_confirmed = 1
-          ) = (
-              SELECT COUNT(*)
-              FROM players
+              phase = 'decision'
+              OR (phase = 'explanation' AND (
+                  SELECT COUNT(*) FROM players WHERE explanation_confirmed = 1
+              ) = (SELECT COUNT(*) FROM players))
           )
     """)
 
@@ -1108,7 +1203,7 @@ def finish_practice():
     conn.commit()
     conn.close()
 
-def start_main_after_practice(initial_wealth, high_periods):
+def start_main_after_practice(initial_wealth, high_periods, num_periods):
     conn = connect_db()
     c = conn.cursor()
 
@@ -1134,7 +1229,8 @@ def start_main_after_practice(initial_wealth, high_periods):
             response_time = NULL,
             has_submitted = 0,
             success = NULL,
-            result_confirmed = 0
+            result_confirmed = 0,
+            game_start_ack = 0
     """, (initial_wealth,))
 
     # 本番用の実験状態を初期化
@@ -1147,6 +1243,7 @@ def start_main_after_practice(initial_wealth, high_periods):
             is_started = 1,
             experiment_over = 0,
             high_periods = ?,
+            num_periods = ?,
             published_period = NULL,
             published_wealths = NULL,
             num_invested = NULL,
@@ -1154,7 +1251,7 @@ def start_main_after_practice(initial_wealth, high_periods):
             num_failed = NULL,
             num_not_invested = NULL
         WHERE id = 1
-    """, (json.dumps(high_periods),))
+    """, (json.dumps(high_periods), num_periods))
 
     conn.commit()
     conn.close()
