@@ -165,8 +165,8 @@ def plot_wealth_distribution(wealths, my_index):
     ax.set_ylim(bottom=0)
 
     if max_wealth > min_wealth:
-        from matplotlib.ticker import MultipleLocator
-        ax.xaxis.set_major_locator(MultipleLocator(10))
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
 
     ax.grid(axis="y", alpha=0.15)
     ax.set_axisbelow(True)
